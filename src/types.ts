@@ -1,23 +1,28 @@
 export type Vec2 = { x: number; y: number };
-export type Vec3 = { x: number; y: number; z: number };
+
+/** Bearbeitungsart einer Kontur */
+export type Op = 'engrave' | 'pocket' | 'cut' | 'off';
+
+export const OP_LABEL: Record<Op, string> = { engrave: 'Gravur', pocket: 'Tasche', cut: 'Durchbruch', off: 'Aus' };
 
 export type Contour = {
-  id: number;
+  id: number;          // level * 100000 + index
+  level: number;       // Index der Schnittebene
+  z: number;           // Welt-Z der Schnittebene
   pts: Vec2[];
   closed: boolean;
   area: number;
   length: number;
-  depth: number;      // Verschachtelungstiefe (0 = außen)
+  depth: number;       // Verschachtelungstiefe innerhalb der Ebene (0 = außen)
   isOuter: boolean;
 };
 
 export type MeshData = {
-  positions: Float32Array;   // 9 Werte pro Dreieck, Original-Koordinaten
+  positions: Float32Array;
   triangleCount: number;
   name: string;
 };
 
-/** Ausgerichtetes Mesh (Oberseite = +Z) */
 export type OrientedMesh = {
   positions: Float32Array;
   min: [number, number, number];
@@ -25,9 +30,6 @@ export type OrientedMesh = {
 };
 
 export type TopAxis = '+z' | '-z' | '+x' | '-x' | '+y' | '-y';
-export type Strategy = 'contour' | 'centerline' | 'fill';
-/** Wo der Werkzeugmittelpunkt relativ zur Kontur läuft */
-export type PathSide = 'on' | 'outside' | 'inside';
 export type OriginXY =
   | 'front-left' | 'front-center' | 'front-right'
   | 'center-left' | 'center' | 'center-right'
@@ -35,26 +37,40 @@ export type OriginXY =
 export type OriginZ = 'top' | 'bottom';
 
 export type Tool = {
-  tipAngle: number;   // Grad (z.B. 30°)
-  tipDia: number;     // mm
-  shaftDia: number;   // mm
+  tipAngle: number;   // 0 = Schaftfräser
+  tipDia: number;
+  shaftDia: number;
 };
 
 export type Settings = {
+  // Ausrichtung
   topAxis: TopAxis;
-  sliceOffset: number;      // mm unter Oberkante
-  tolerance: number;        // Kurventoleranz mm
+  rotZ: 0 | 90 | 180 | 270;
+  mirror: boolean;
+  scale: number;              // Faktor (1 = mm)
+  // Schnitt
+  sliceOffsets: number[];     // mm unter Oberkante, je Ebene
+  tolerance: number;
+  // Nullpunkt
   originXY: OriginXY;
   originZ: OriginZ;
-  strategy: Strategy;
-  pathSide: PathSide;       // on = Stichel auf Linie; outside/inside = Schaftfräser-Offset
-  mirrorY: boolean;         // Front von hinten gravieren
-  depth: number;
+  // Bearbeitung
+  engraveMode: 'contour' | 'centerline';
+  engraveDepth: number;
+  pocketDepth: number;
+  pocketStepOver: number;
+  material: number;           // Materialstärke
+  cutOvershoot: number;       // Übermaß beim Durchbruch
+  tabCount: number;
+  tabWidth: number;
+  tabHeight: number;
+  cutDir: 'climb' | 'conventional';
+  compensate: boolean;        // Werkzeugradius-Korrektur bei Tasche/Durchbruch
   stepDown: number;
   safeZ: number;
-  stepOver: number;
   minLength: number;
-  ignored: number[];        // Kontur-IDs
+  ops: Record<string, Op>;    // Kontur-ID → Bearbeitung (Standard: engrave)
+  // Werkzeug & Maschine
   tool: Tool;
   feedXY: number;
   feedZ: number;
@@ -64,102 +80,60 @@ export type Settings = {
   presetId: string;
 };
 
-export type Move = { x: number; y: number; z: number; rapid: boolean };
+export type Move = { x: number; y: number; z: number; rapid: boolean; op: Op };
 
 export type Toolpath = {
-  moves: Move[];                // vollständige Werkzeugbewegung inkl. Eilgang
+  moves: Move[];
   cutLength: number;
   rapidLength: number;
   timeMin: number;
-  passes: number;
   bounds: { minX: number; minY: number; maxX: number; maxY: number };
-  settingsKey: string;          // zur Erkennung veralteter Ergebnisse
+  counts: Record<Op, number>;
+  warnings: string[];
+  settingsKey: string;
 };
 
 export const PRESETS: { id: string; name: string; start: string; end: string }[] = [
-  {
-    id: 'grbl', name: 'GRBL',
-    start: 'G21 G90 G17 G94\nG0 Z{safe}\nM3 S{rpm}\nG4 P1.5 ; Spindel hochlaufen',
-    end: 'G0 Z{safe}\nM5\nG0 X0 Y0\nM2',
-  },
-  {
-    id: 'linuxcnc', name: 'LinuxCNC / Mach3',
-    start: 'G21 G90 G17 G40 G49 G94\nG64 P0.01\nG0 Z{safe}\nM3 S{rpm}\nG4 P2',
-    end: 'G0 Z{safe}\nM5\nG0 X0 Y0\nM30',
-  },
-  {
-    id: 'marlin', name: 'Marlin (CNC-Modus)',
-    start: 'G21 G90\nG0 Z{safe}\nM3 S{rpm}\nG4 S2',
-    end: 'G0 Z{safe}\nM5\nG0 X0 Y0\nM84',
-  },
-  {
-    id: 'minimal', name: 'Nur Bewegungen',
-    start: 'G21 G90\nG0 Z{safe}',
-    end: 'G0 Z{safe}',
-  },
+  { id: 'grbl', name: 'GRBL', start: 'G21 G90 G17 G94\nG0 Z{safe}\nM3 S{rpm}\nG4 P1.5 ; Spindel hochlaufen', end: 'G0 Z{safe}\nM5\nG0 X0 Y0\nM2' },
+  { id: 'linuxcnc', name: 'LinuxCNC / Mach3', start: 'G21 G90 G17 G40 G49 G94\nG64 P0.01\nG0 Z{safe}\nM3 S{rpm}\nG4 P2', end: 'G0 Z{safe}\nM5\nG0 X0 Y0\nM30' },
+  { id: 'marlin', name: 'Marlin (CNC)', start: 'G21 G90\nG0 Z{safe}\nM3 S{rpm}\nG4 S2', end: 'G0 Z{safe}\nM5\nG0 X0 Y0\nM84' },
+  { id: 'minimal', name: 'Nur Bewegungen', start: 'G21 G90\nG0 Z{safe}', end: 'G0 Z{safe}' },
+];
+
+export const SNIPPETS: { l: string; t: string; d: string }[] = [
+  { l: 'Pause', t: 'M0 ; Pause – Weiter an der Maschine', d: 'Programm anhalten (z. B. Werkzeugwechsel)' },
+  { l: 'Spindel an', t: 'M3 S{rpm}', d: 'Spindel im Uhrzeigersinn starten' },
+  { l: 'Spindel aus', t: 'M5', d: 'Spindel stoppen' },
+  { l: 'Warten 2 s', t: 'G4 P2', d: 'Verweilzeit' },
+  { l: 'Kühlung an', t: 'M8', d: 'Kühlmittel / Luft ein' },
+  { l: 'Kühlung aus', t: 'M9', d: 'Kühlmittel / Luft aus' },
+  { l: 'Sicherheitshöhe', t: 'G0 Z{safe}', d: 'Auf sichere Höhe fahren' },
+  { l: 'Zum Nullpunkt', t: 'G0 X0 Y0', d: 'XY-Nullpunkt anfahren' },
+  { l: 'Z antasten', t: 'G38.2 Z-25 F60 ; Taster\nG92 Z0', d: 'Werkzeuglänge per Taster setzen' },
 ];
 
 export const defaultSettings: Settings = {
-  topAxis: '+z',
-  sliceOffset: 0.1,
-  tolerance: 0.03,
-  originXY: 'front-left',
-  originZ: 'top',
-  strategy: 'contour',
-  pathSide: 'on',
-  mirrorY: false,
-  depth: 0.3,
-  stepDown: 0.3,
-  safeZ: 3,
-  stepOver: 0.25,
-  minLength: 0.5,
-  ignored: [],
+  topAxis: '+z', rotZ: 0, mirror: false, scale: 1,
+  sliceOffsets: [0.1], tolerance: 0.03,
+  originXY: 'front-left', originZ: 'top',
+  engraveMode: 'contour', engraveDepth: 0.3,
+  pocketDepth: 1, pocketStepOver: 0.3,
+  material: 2, cutOvershoot: 0.2, tabCount: 4, tabWidth: 3, tabHeight: 0.5,
+  cutDir: 'climb', compensate: true,
+  stepDown: 0.3, safeZ: 5, minLength: 0.5, ops: {},
   tool: { tipAngle: 30, tipDia: 0.2, shaftDia: 3.175 },
-  feedXY: 500,
-  feedZ: 120,
-  rpm: 12000,
-  startBlock: PRESETS[0].start,
-  endBlock: PRESETS[0].end,
-  presetId: 'grbl',
+  feedXY: 500, feedZ: 120, rpm: 12000,
+  startBlock: PRESETS[0].start, endBlock: PRESETS[0].end, presetId: 'grbl',
 };
 
-/** DnD-fähige Bausteine für Start/Ende-Blöcke */
-export type CodeChip = {
-  id: string;
-  label: string;
-  kind: 'preset-start' | 'preset-end' | 'snippet';
-  code: string;
-  hint?: string;
-};
-
-export function buildCodeChips(): CodeChip[] {
-  const chips: CodeChip[] = [];
-  for (const p of PRESETS) {
-    chips.push({ id: `ps-${p.id}`, label: `${p.name} · Start`, kind: 'preset-start', code: p.start, hint: 'Zieht den kompletten Startblock' });
-    chips.push({ id: `pe-${p.id}`, label: `${p.name} · Ende`, kind: 'preset-end', code: p.end, hint: 'Zieht den kompletten Endblock' });
-  }
-  const snips: { id: string; label: string; code: string }[] = [
-    { id: 'm0', label: 'Pause M0', code: 'M0 ; Pause – Weiter an der Maschine' },
-    { id: 'm8', label: 'Kühlung an', code: 'M8' },
-    { id: 'm9', label: 'Kühlung aus', code: 'M9' },
-    { id: 'g4', label: 'Warten 2 s', code: 'G4 P2' },
-    { id: 'spindle', label: 'Spindel an', code: 'M3 S{rpm}' },
-    { id: 'spindle-off', label: 'Spindel aus', code: 'M5' },
-    { id: 'home-xy', label: 'XY nach 0', code: 'G0 X0 Y0' },
-    { id: 'safe-z', label: 'Auf safe Z', code: 'G0 Z{safe}' },
-  ];
-  for (const s of snips) chips.push({ id: s.id, label: s.label, kind: 'snippet', code: s.code });
-  return chips;
-}
-
-export type StepId = 'model' | 'orient' | 'slice' | 'origin' | 'depth' | 'select' | 'tool' | 'compute' | 'program' | 'export';
+export type StepId = 'model' | 'orient' | 'slice' | 'origin' | 'machining' | 'select' | 'tool' | 'compute' | 'program' | 'export';
 
 export const STEPS: { id: StepId; title: string }[] = [
   { id: 'model', title: 'Modell' },
   { id: 'orient', title: 'Ausrichtung' },
-  { id: 'slice', title: 'Schnittebene' },
+  { id: 'slice', title: 'Schnittebenen' },
   { id: 'origin', title: 'Nullpunkt' },
-  { id: 'depth', title: 'Gravur' },
+  { id: 'machining', title: 'Bearbeitung' },
   { id: 'select', title: 'Auswahl' },
   { id: 'tool', title: 'Werkzeug' },
   { id: 'compute', title: 'Berechnen' },

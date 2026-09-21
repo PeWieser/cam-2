@@ -1,14 +1,14 @@
 import { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-import type { Contour, OrientedMesh, Tool, Toolpath, Vec2 } from '../types';
+import type { Contour, Op, OrientedMesh, Tool, Toolpath, Vec2 } from '../types';
 
 export type StageProps = {
   mesh: OrientedMesh | null;
   sliceZ: number | null;
   showPlane: boolean;
   contours: Contour[];
-  ignored: number[];
+  opOf: (id: number) => Op;
   selectable: boolean;
   onToggleContour?: (id: number) => void;
   origin: Vec2 | null;
@@ -26,9 +26,10 @@ export type StageProps = {
 
 const C = {
   bg: 0x0e0e10, grid: 0x232326, gridMinor: 0x18181b, model: 0x8e8e96,
-  contour: 0x3b82f6, contourIgnored: 0x4a4a52, contourHover: 0x93c5fd,
-  cut: 0x3b82f6, rapid: 0xf87171, origin: [0xf87171, 0x4ade80, 0x60a5fa], tool: 0xd4d4d8, plane: 0x3b82f6,
+  contourHover: 0xffffff,
+  rapid: 0xf87171, origin: [0xf87171, 0x4ade80, 0x60a5fa], tool: 0xd4d4d8, plane: 0x3b82f6,
 };
+const OPC: Record<Op, number> = { engrave: 0x3b82f6, pocket: 0xa78bfa, cut: 0xfbbf24, off: 0x4a4a52 };
 
 export default function Stage(p: StageProps) {
   const ref = useRef<HTMLDivElement>(null);
@@ -117,8 +118,7 @@ export default function Stage(p: StageProps) {
         renderer.domElement.style.cursor = id !== null ? 'pointer' : '';
         for (const l of contours.children) {
           const m = (l as THREE.Line).material as THREE.LineBasicMaterial;
-          const ignored = propsRef.current.ignored.includes(l.userData.id);
-          m.color.setHex(l.userData.id === id ? C.contourHover : ignored ? C.contourIgnored : C.contour);
+          m.color.setHex(l.userData.id === id ? C.contourHover : OPC[propsRef.current.opOf(l.userData.id)]);
         }
       }
     };
@@ -180,18 +180,17 @@ export default function Stage(p: StageProps) {
   useEffect(() => {
     const s = st.current; if (!s) return;
     disposeGroup(s.contours);
-    if (p.sliceZ === null) return;
-    const z = p.sliceZ + s.size * 0.002;
     for (const c of p.contours) {
+      const z = c.z + s.size * 0.002;
       const pts = c.pts.map((q) => new THREE.Vector3(q.x, q.y, z));
       if (c.closed) pts.push(pts[0].clone());
       const geo = new THREE.BufferGeometry().setFromPoints(pts);
-      const ignored = p.ignored.includes(c.id);
-      const line = new THREE.Line(geo, new THREE.LineBasicMaterial({ color: ignored ? C.contourIgnored : C.contour, transparent: true, opacity: ignored ? 0.7 : 1 }));
+      const op = p.opOf(c.id);
+      const line = new THREE.Line(geo, new THREE.LineBasicMaterial({ color: OPC[op], transparent: true, opacity: op === 'off' ? 0.7 : 1 }));
       line.userData.id = c.id;
       s.contours.add(line);
     }
-  }, [p.contours, p.sliceZ, p.ignored]);
+  }, [p.contours, p.opOf]);
 
   // --- Nullpunkt ------------------------------------------------------------------
   useEffect(() => {
@@ -217,11 +216,11 @@ export default function Stage(p: StageProps) {
     disposeGroup(s.path);
     if (!p.toolpath || !p.originForPath || p.zTopWorld === null) return;
     const ox = p.originForPath.x, oy = p.originForPath.y, oz = p.zTopWorld - p.zProgramTop;
-    const cut: number[] = [], rapid: number[] = [];
+    const buckets: Record<string, number[]> = { rapid: [], engrave: [], pocket: [], cut: [], off: [] };
     const mv = p.toolpath.moves;
     for (let i = 1; i < mv.length; i++) {
       const a = mv[i - 1], b = mv[i];
-      const arr = b.rapid ? rapid : cut;
+      const arr = buckets[b.rapid ? 'rapid' : b.op];
       arr.push(a.x + ox, a.y + oy, a.z + oz, b.x + ox, b.y + oy, b.z + oz);
     }
     const mk = (arr: number[], color: number, dashed: boolean) => {
@@ -234,8 +233,8 @@ export default function Stage(p: StageProps) {
       if (dashed) l.computeLineDistances();
       s.path.add(l);
     };
-    if (cut.length) mk(cut, C.cut, false);
-    if (rapid.length) mk(rapid, C.rapid, true);
+    for (const op of ['engrave', 'pocket', 'cut'] as Op[]) if (buckets[op].length) mk(buckets[op], OPC[op], false);
+    if (buckets.rapid.length) mk(buckets.rapid, C.rapid, true);
   }, [p.toolpath, p.originForPath, p.zTopWorld, p.zProgramTop]);
 
   // --- Werkzeugkopf ------------------------------------------------------------------------

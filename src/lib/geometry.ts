@@ -138,61 +138,6 @@ export function pathLength(pts: Vec2[], closed: boolean): number {
   return l;
 }
 
-/**
- * Parallel-Offset eines Polygons (Miter).
- * distance > 0 = nach außen bei CCW-Umriss; < 0 = nach innen.
- * Für CW-Umriss gilt das Gegenteil – wir normalisieren über signedArea.
- */
-export function offsetPolygon(pts: Vec2[], distance: number): Vec2[] {
-  if (pts.length < 3 || Math.abs(distance) < 1e-9) return pts.map((p) => ({ ...p }));
-  // CCW → positive Fläche (nach unserer signedArea-Konvention ist CW positiv? → prüfen)
-  // signedArea: a += (xj+xi)*(yj-yi) → positive = CW in Standard-Math mit Y-up.
-  // Wir wollen: distance>0 = weg vom Inneren (außen).
-  const area = signedArea(pts);
-  // signedArea > 0 = CCW, < 0 = CW (in unserem System).
-  // Edge (dx,dy): links = (-dy, dx), rechts = (dy, -dx).
-  // CCW: außen = links. CW: außen = rechts.
-  const outwardSign = area >= 0 ? -1 : 1;
-  const n = pts.length;
-  const out: Vec2[] = [];
-  for (let i = 0; i < n; i++) {
-    const prev = pts[(i - 1 + n) % n];
-    const curr = pts[i];
-    const next = pts[(i + 1) % n];
-    const e1x = curr.x - prev.x, e1y = curr.y - prev.y;
-    const e2x = next.x - curr.x, e2y = next.y - curr.y;
-    const l1 = Math.hypot(e1x, e1y) || 1;
-    const l2 = Math.hypot(e2x, e2y) || 1;
-    // Außen-Normale je Kante
-    const n1x = outwardSign * (e1y / l1);
-    const n1y = outwardSign * (-e1x / l1);
-    const n2x = outwardSign * (e2y / l2);
-    const n2y = outwardSign * (-e2x / l2);
-    // Bei CW: rechts = (dy, -dx) wenn edge=(dx,dy) → (e1y, -e1x) — ja.
-    // Bei CCW (outwardSign=-1): links = (-dy, dx) = - (dy, -dx).
-    let bx = n1x + n2x, by = n1y + n2y;
-    const bl = Math.hypot(bx, by);
-    if (bl < 1e-8) {
-      bx = n1x; by = n1y;
-    } else {
-      bx /= bl; by /= bl;
-    }
-    // Miter: 1 / cos(half) ≈ 2 / (1 + n1·n2) begrenzt
-    const cosHalf = Math.max(-0.99, Math.min(0.99, n1x * n2x + n1y * n2y));
-    // n1 und n2 sind Einheitsnormalen; cos des Winkels zwischen ihnen
-    // miter length = distance / cos(phi/2) wo phi = Winkel zwischen Normalen
-    // cos(phi/2) = sqrt((1+cos)/2) → scale = 1/cos = sqrt(2/(1+cos))
-    const miter = Math.min(4, Math.sqrt(2 / Math.max(0.05, 1 + cosHalf)));
-    out.push({
-      x: curr.x + bx * distance * miter,
-      y: curr.y + by * distance * miter,
-    });
-  }
-  // Degeneriert? Fläche prüfen
-  if (Math.abs(signedArea(out)) < 1e-6) return pts.map((p) => ({ ...p }));
-  return out;
-}
-
 export function pointInPolygon(p: Vec2, poly: Vec2[]): boolean {
   let inside = false;
   for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
@@ -213,7 +158,7 @@ export function buildContours(
   const closedIdx = simplified.map((c, i) => (c.closed ? i : -1)).filter((i) => i >= 0);
 
   const contours: Contour[] = simplified.map((c, id) => ({
-    id,
+    id, level: 0, z: 0,
     pts: c.pts,
     closed: c.closed,
     area: c.closed ? Math.abs(signedArea(c.pts)) : 0,
@@ -293,4 +238,148 @@ export function hatchFill(
     flip = !flip;
   }
   return lines;
+}
+
+// ---------------------------------------------------------------------------
+// Orientierung & Polygon-Versatz (Werkzeugradius-Korrektur)
+// ---------------------------------------------------------------------------
+
+/** Polygon in gewünschte Umlaufrichtung bringen (ccw = gegen den Uhrzeigersinn) */
+export function orient(pts: Vec2[], ccw: boolean): Vec2[] {
+  const a = signedArea(pts);
+  // signedArea hier: positiv = im Uhrzeigersinn (wegen Formel), daher invertieren
+  const isCcw = a < 0;
+  return isCcw === ccw ? pts : [...pts].reverse();
+}
+
+/**
+ * Versatz eines geschlossenen Polygons. d > 0 = nach außen, d < 0 = nach innen.
+ * Miter-Ecken mit Begrenzung, danach Bereinigung. Liefert null, wenn die Form
+ * kollabiert (z. B. Loch kleiner als Werkzeug).
+ */
+export function offsetPolygon(input: Vec2[], d: number): Vec2[] | null {
+  if (Math.abs(d) < 1e-9) return input;
+  const pts = orient(dedupe(input), true);
+  const n = pts.length;
+  if (n < 3) return null;
+  const areaBefore = Math.abs(signedArea(pts));
+
+  const out: Vec2[] = [];
+  const miterLimit = 3 * Math.abs(d);
+  for (let i = 0; i < n; i++) {
+    const p0 = pts[(i + n - 1) % n], p1 = pts[i], p2 = pts[(i + 1) % n];
+    // Kantenrichtungen
+    let e1x = p1.x - p0.x, e1y = p1.y - p0.y, e2x = p2.x - p1.x, e2y = p2.y - p1.y;
+    const l1 = Math.hypot(e1x, e1y) || 1, l2 = Math.hypot(e2x, e2y) || 1;
+    e1x /= l1; e1y /= l1; e2x /= l2; e2y /= l2;
+    // Außennormalen bei CCW: (dy, -dx)
+    const n1x = e1y, n1y = -e1x, n2x = e2y, n2y = -e2x;
+    const bx = n1x + n2x, by = n1y + n2y;
+    const bl = Math.hypot(bx, by);
+    if (bl < 1e-9) {
+      out.push({ x: p1.x + n1x * d, y: p1.y + n1y * d });
+      continue;
+    }
+    const cosHalf = bl / 2;
+    const miterLen = d / Math.max(cosHalf, 1e-6);
+    if (Math.abs(miterLen) > miterLimit) {
+      // Fase statt spitzer Ecke
+      out.push({ x: p1.x + n1x * d, y: p1.y + n1y * d });
+      out.push({ x: p1.x + n2x * d, y: p1.y + n2y * d });
+    } else {
+      out.push({ x: p1.x + (bx / bl) * miterLen, y: p1.y + (by / bl) * miterLen });
+    }
+  }
+
+  const cleaned = removeLoops(dedupe(out));
+  if (cleaned.length < 3) return null;
+  if (d < 0) {
+    const areaAfter = Math.abs(signedArea(cleaned));
+    const ccwAfter = signedArea(cleaned) < 0;
+    if (!ccwAfter || areaAfter >= areaBefore || areaAfter < 1e-6) return null;
+    // Kollaps-Erkennung: jede Ergebnis-Ecke muss ~|d| von allen Originalkanten entfernt sein
+    const lim = Math.abs(d) * 0.9;
+    for (const q of cleaned) {
+      for (let i = 0; i < n; i++) {
+        if (distToSegment(q, pts[i], pts[(i + 1) % n]) < lim) return null;
+      }
+    }
+  }
+  return cleaned;
+}
+
+function distToSegment(p: Vec2, a: Vec2, b: Vec2): number {
+  const dx = b.x - a.x, dy = b.y - a.y;
+  const l2 = dx * dx + dy * dy;
+  const t = l2 > 0 ? Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / l2)) : 0;
+  return Math.hypot(p.x - (a.x + t * dx), p.y - (a.y + t * dy));
+}
+
+function dedupe(pts: Vec2[]): Vec2[] {
+  const out: Vec2[] = [];
+  for (const p of pts) {
+    const l = out[out.length - 1];
+    if (!l || Math.hypot(p.x - l.x, p.y - l.y) > 1e-5) out.push(p);
+  }
+  if (out.length > 1) {
+    const f = out[0], l = out[out.length - 1];
+    if (Math.hypot(f.x - l.x, f.y - l.y) <= 1e-5) out.pop();
+  }
+  return out;
+}
+
+/** Kleine Selbstüberschneidungen (Schleifen an konkaven Ecken) entfernen */
+function removeLoops(pts: Vec2[]): Vec2[] {
+  const n = pts.length;
+  if (n < 4) return pts;
+  const maxWindow = Math.min(12, n - 2);
+  const res = [...pts];
+  let changed = true;
+  let guard = 50;
+  while (changed && guard-- > 0) {
+    changed = false;
+    const m = res.length;
+    outer: for (let i = 0; i < m; i++) {
+      for (let k = 2; k <= maxWindow; k++) {
+        const j = (i + k) % m;
+        if (j === (i + m - 1) % m) continue;
+        const x = segIntersect(res[i], res[(i + 1) % m], res[j], res[(j + 1) % m]);
+        if (x) {
+          // Schleife zwischen i+1 .. j entfernen, Schnittpunkt einsetzen
+          const keep: Vec2[] = [];
+          for (let t = 0; t < m; t++) {
+            const inLoop = (t - (i + 1) + m) % m < k;
+            if (!inLoop) keep.push(res[t]);
+            if (t === i) keep.push(x);
+          }
+          res.length = 0; res.push(...keep);
+          changed = true;
+          break outer;
+        }
+      }
+    }
+  }
+  return res;
+}
+
+function segIntersect(a: Vec2, b: Vec2, c: Vec2, d: Vec2): Vec2 | null {
+  const r = { x: b.x - a.x, y: b.y - a.y }, s = { x: d.x - c.x, y: d.y - c.y };
+  const den = r.x * s.y - r.y * s.x;
+  if (Math.abs(den) < 1e-12) return null;
+  const t = ((c.x - a.x) * s.y - (c.y - a.y) * s.x) / den;
+  const u = ((c.x - a.x) * r.y - (c.y - a.y) * r.x) / den;
+  if (t > 1e-6 && t < 1 - 1e-6 && u > 1e-6 && u < 1 - 1e-6) return { x: a.x + t * r.x, y: a.y + t * r.y };
+  return null;
+}
+
+/** Verschachtelungstiefe eines Polygons innerhalb einer Menge geschlossener Polygone */
+export function nestingDepth(target: Vec2[], others: Vec2[][]): number {
+  const p = target[0];
+  let d = 0;
+  for (const o of others) {
+    if (o === target) continue;
+    if (Math.abs(signedArea(o)) <= Math.abs(signedArea(target))) continue;
+    if (pointInPolygon(p, o)) d++;
+  }
+  return d;
 }
