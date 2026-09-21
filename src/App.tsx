@@ -1,11 +1,11 @@
 import { Component, useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { Check, ChevronLeft, ChevronRight, Redo2, Undo2, Upload } from 'lucide-react';
+import { Check, ChevronLeft, ChevronRight, Redo2, RotateCcw, Undo2, Upload } from 'lucide-react';
 import favicon from './assets/favicon.svg';
 import Stage from './components/Stage';
 import CodeView from './components/CodeView';
 import { ComputeStep, ExportStep, MachiningStep, ModelStep, OrientStep, OriginStep, ProgramStep, SelectStep, SliceStep, ToolStep, OP_COLOR } from './components/steps';
 import { Segmented } from './components/ui';
-import { useSettings } from './store';
+import { useSettings, useStored } from './store';
 import { loadModelFile } from './lib/loaders';
 import { activeContours, computeToolpath, levelZ, opOf, orientMesh, originPoint, settingsKey, sliceLevels } from './lib/toolpath';
 import { generateGcode } from './lib/gcode';
@@ -16,19 +16,11 @@ export default function App() {
   return <ErrorBoundary><Workbench /></ErrorBoundary>;
 }
 
-const MODE_KEY = 'gravura:mode';
-const loadMode = (): Mode => {
-  try {
-    const m = localStorage.getItem(MODE_KEY);
-    return MODES.includes(m as Mode) ? (m as Mode) : 'standard';
-  } catch { return 'standard'; } // Speicher gesperrt (z. B. Safari ohne Cookies)
-};
-
 function Workbench() {
-  const { settings: s, set, undo, redo, canUndo, canRedo } = useSettings();
+  const { settings: s, set, undo, redo, reset, canUndo, canRedo, canReset } = useSettings();
   const [mesh, setMesh] = useState<MeshData | null>(null);
   const [step, setStep] = useState<StepId>('model');
-  const [mode, setMode] = useState<Mode>(loadMode);
+  const [mode, setMode] = useStored<Mode>('gravura:mode', 'standard', MODES); // im Browser gemerkt
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
@@ -77,7 +69,7 @@ function Workbench() {
     }, 20);
   }, [om, contours, s]);
 
-  // Schritte des aktiven Modus („Schnell“ blendet ganze Schritte aus)
+  // Schritte des aktiven Modus („Einfach“ blendet ganze Schritte aus)
   const steps = useMemo(() => STEPS.filter((x) => MODE_STEPS[mode].includes(x.id)), [mode]);
   const idx = steps.findIndex((x) => x.id === step);
   const canGo = (id: StepId) => id === 'model' || !!mesh;
@@ -87,11 +79,10 @@ function Workbench() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [idx, mesh, steps]);
 
-  /** Modus wechseln: Schritte und Voreinstellungen anpassen, Auswahl merken */
+  /** Modus wechseln: Schritte und Voreinstellungen anpassen; die Wahl merkt useStored */
   const changeMode = useCallback((m: Mode) => {
     setMode(m);
-    try { localStorage.setItem(MODE_KEY, m); } catch { /* Speicher gesperrt – Auswahl gilt nur für diese Sitzung */ }
-    if (m === 'quick') set({ sliceOffsets: [s.sliceOffsets[0] ?? 0.1], ops: {} }); // nur eine Ebene, alle Linien = Gravur
+    if (m === 'einfach') set({ sliceOffsets: [s.sliceOffsets[0] ?? 0.1], ops: {} }); // nur eine Ebene, alle Linien = Gravur
     setStep((cur) => {
       const visible = MODE_STEPS[m];
       if (visible.includes(cur)) return cur;
@@ -100,7 +91,7 @@ function Workbench() {
       while (at > 0 && !visible.includes(order[at])) at--; // letzten sichtbaren Schritt davor
       return visible.includes(order[at]) ? order[at] : 'model';
     });
-  }, [set, s.sliceOffsets]);
+  }, [set, setMode, s.sliceOffsets]);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement;
@@ -145,17 +136,18 @@ function Workbench() {
         <div className="flex items-center gap-2">
           <img src={favicon} alt="" aria-hidden="true" className="h-5 w-5 rounded-[5px]" />
           <span className="text-[13px] font-semibold tracking-tight">Gravura</span>
-          <span className="hidden text-[12px] text-fg3 sm:block">· Frontplatten aus 3D-Modellen fräsen</span>
+          <span className="hidden text-[12px] text-fg3 md:block">· Frontplatten aus 3D-Modellen fräsen</span>
         </div>
         <div className="flex items-center gap-2">
-          <span className="hidden text-[11px] text-fg3 lg:block">Modus</span>
-          <div className="w-[188px]" title={MODE_HINT[mode]}>
+          <span className="hidden text-[11px] text-fg3 md:block">Modus</span>
+          <div className="shrink-0" title={MODE_HINT[mode]}>
             <Segmented value={mode} onChange={changeMode} options={MODES.map((m) => ({ value: m, label: MODE_LABEL[m], hint: MODE_HINT[m] }))} />
           </div>
-          <span className="h-5 w-px bg-line" aria-hidden="true" />
+          <span className="h-5 w-px shrink-0 bg-line" aria-hidden="true" />
           <IconBtn onClick={undo} disabled={!canUndo} title="Rückgängig (Strg+Z)"><Undo2 size={15} strokeWidth={1.7} /></IconBtn>
           <IconBtn onClick={redo} disabled={!canRedo} title="Wiederholen (Strg+Shift+Z)"><Redo2 size={15} strokeWidth={1.7} /></IconBtn>
-          {mesh && <span className="num ml-2 hidden max-w-[260px] truncate text-[12px] text-fg3 md:block">{mesh.name}</span>}
+          <IconBtn onClick={reset} disabled={!canReset} title="Alle Einstellungen auf Werkseinstellung zurücksetzen"><RotateCcw size={15} strokeWidth={1.7} /></IconBtn>
+          {mesh && <span className="num ml-1 hidden max-w-[240px] truncate text-[12px] text-fg3 lg:block">{mesh.name}</span>}
         </div>
       </header>
 

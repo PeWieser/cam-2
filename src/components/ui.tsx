@@ -63,13 +63,15 @@ export function Segmented<T extends string>({ options, value, onChange, cols }: 
   options: { value: T; label: ReactNode; hint?: string }[]; value: T; onChange: (v: T) => void; cols?: number;
 }) {
   return (
-    <div className="grid gap-1 rounded-lg bg-s3 p-1" style={{ gridTemplateColumns: `repeat(${cols ?? options.length}, minmax(0,1fr))` }} role="radiogroup">
+    // Spalten mindestens so breit wie ihr Text („Standard“ wird nicht abgeschnitten),
+    // bei Platz gleichmäßig gestreckt.
+    <div className="grid gap-1 rounded-lg bg-s3 p-1" style={{ gridTemplateColumns: `repeat(${cols ?? options.length}, minmax(max-content, 1fr))` }} role="radiogroup">
       {options.map((o) => (
         <button
           key={o.value} type="button" role="radio" aria-checked={value === o.value} title={o.hint}
           onClick={() => onChange(o.value)}
           className={cn(
-            'h-7 rounded-md px-2 text-[12px] font-medium transition-colors duration-150',
+            'h-7 whitespace-nowrap rounded-md px-2.5 text-[12px] font-medium transition-colors duration-150',
             value === o.value ? 'bg-s1 text-fg shadow-[var(--mw-shadow)]' : 'text-fg2 hover:text-fg'
           )}
         >

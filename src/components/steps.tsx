@@ -62,7 +62,7 @@ export function OrientStep({ s, set, om, mode }: { s: Settings; set: (p: Partial
           options={[{ value: '0', label: '0°' }, { value: '90', label: '90°' }, { value: '180', label: '180°' }, { value: '270', label: '270°' }]} />
       </div>
       <Toggle label="Spiegeln (Gravur von der Rückseite, z. B. Acryl)" checked={s.mirror} onChange={(v) => set({ mirror: v, ops: {} })} />
-      {visibleIn(mode, 'fine') && (
+      {visibleIn(mode, 'experte') && (
         <div className="flex items-end gap-2">
           <div className="flex-1"><Field label="Maßstab" value={s.scale} min={0.001} step={0.1} unit="×" onChange={(v) => set({ scale: v, ops: {} })} /></div>
           <Button onClick={() => set({ scale: s.scale === 25.4 ? 1 : 25.4, ops: {} })} title="Datei in Zoll → Millimeter">{s.scale === 25.4 ? 'mm' : 'Zoll → mm'}</Button>
@@ -118,7 +118,7 @@ export function SliceStep({ s, set, om, contours, level, setLevel, mode }: {
         ))}
       </div>
       <Button onClick={() => { set({ sliceOffsets: [...offs, +Math.min(h * 0.5, offs[offs.length - 1] + 1).toFixed(2)] }); setLevel(offs.length); }} icon={<Plus {...ICON} />} disabled={offs.length >= 4}>Ebene hinzufügen</Button>
-      {visibleIn(mode, 'fine') && (
+      {visibleIn(mode, 'experte') && (
         <Field label="Kurvengenauigkeit" value={s.tolerance} min={0.005} step={0.01} unit="mm" onChange={(v) => set({ tolerance: v })} hint="Maximale Abweichung von der Originalkurve. Kleiner = feiner, längerer G-Code." />
       )}
       {!contours.length && <Note kind="warn">Auf dieser Höhe schneidet die Ebene das Modell nicht. Schiebe den Regler etwas tiefer.</Note>}
@@ -157,9 +157,9 @@ export function MachiningStep({ s, set, om, mode }: { s: Settings; set: (p: Part
   const width = t.tipDia + 2 * s.engraveDepth * Math.tan((t.tipAngle * Math.PI) / 360);
   const preset = PRESETS.find((p) => p.id === s.presetId) ?? PRESETS[0];
 
-  if (mode === 'quick') {
+  if (mode === 'einfach') {
     return (
-      <StepFrame title="Gravur" lead="Wie tief gefräst wird und womit. Material, Vorschub und Programmrahmen stehen auf bewährten Werten – unter „Standard“ und „Fein“ kommen sie dazu.">
+      <StepFrame title="Gravur" lead="Wie tief gefräst wird und womit. Material, Vorschub und Programmrahmen stehen auf bewährten Werten – unter „Standard“ und „Experte“ kommen sie dazu.">
         <Field label="Gravurtiefe" value={s.engraveDepth} min={0.01} step={0.05} unit="mm" onChange={(v) => set({ engraveDepth: v })} hint="0,3 mm ist für Schrift meist genau richtig." />
         <div>
           <div className="mb-1 text-[12px] text-fg2">Werkzeug</div>
@@ -176,7 +176,7 @@ export function MachiningStep({ s, set, om, mode }: { s: Settings; set: (p: Part
     );
   }
 
-  const fine = visibleIn(mode, 'fine');
+  const experte = visibleIn(mode, 'experte');
   return (
     <StepFrame title="Bearbeitung" lead="Drei Arten, die du im nächsten Schritt einzelnen Linien zuweist: Gravur (Standard), Tasche und Durchbruch. Hier legst du für jede die Tiefen fest.">
       <div className="grid grid-cols-2 gap-3">
@@ -192,7 +192,7 @@ export function MachiningStep({ s, set, om, mode }: { s: Settings; set: (p: Part
       <Group color={OP_COLOR.pocket} title="Tasche" sub="Flächen bis zu einer Tiefe ausräumen">
         <div className="grid grid-cols-2 gap-3">
           <Field label="Tiefe" value={s.pocketDepth} min={0.01} step={0.1} unit="mm" onChange={(v) => set({ pocketDepth: v })} />
-          {fine && <Field label="Zeilenabstand" value={s.pocketStepOver} min={0.05} step={0.05} unit="mm" onChange={(v) => set({ pocketStepOver: v })} />}
+          {experte && <Field label="Zeilenabstand" value={s.pocketStepOver} min={0.05} step={0.05} unit="mm" onChange={(v) => set({ pocketStepOver: v })} />}
         </div>
       </Group>
       <Group color={OP_COLOR.cut} title="Durchbruch" sub="Löcher, Fenster, Plattenumriss">
@@ -200,7 +200,7 @@ export function MachiningStep({ s, set, om, mode }: { s: Settings; set: (p: Part
           <div className="flex-1"><Field label="Materialstärke" value={s.material} min={0.1} step={0.1} unit="mm" onChange={(v) => set({ material: v })} /></div>
           {h > 0 && <Button onClick={() => set({ material: +h.toFixed(2) })} title="Modellhöhe übernehmen">= {h.toFixed(2)}</Button>}
         </div>
-        {fine && (
+        {experte && (
           <div className="grid grid-cols-2 gap-3">
             <Field label="Übermaß nach unten" value={s.cutOvershoot} min={0} step={0.1} unit="mm" onChange={(v) => set({ cutOvershoot: v })} />
             <div>
@@ -209,12 +209,12 @@ export function MachiningStep({ s, set, om, mode }: { s: Settings; set: (p: Part
             </div>
           </div>
         )}
-        <div className={cn('grid gap-3', fine ? 'grid-cols-3' : 'grid-cols-1')}>
+        <div className={cn('grid gap-3', experte ? 'grid-cols-3' : 'grid-cols-1')}>
           <Field label="Haltestege" value={s.tabCount} min={0} max={12} step={1} onChange={(v) => set({ tabCount: Math.round(v) })} />
-          {fine && <Field label="Stegbreite" value={s.tabWidth} min={0.5} step={0.5} unit="mm" onChange={(v) => set({ tabWidth: v })} />}
-          {fine && <Field label="Steghöhe" value={s.tabHeight} min={0.1} step={0.1} unit="mm" onChange={(v) => set({ tabHeight: v })} />}
+          {experte && <Field label="Stegbreite" value={s.tabWidth} min={0.5} step={0.5} unit="mm" onChange={(v) => set({ tabWidth: v })} />}
+          {experte && <Field label="Steghöhe" value={s.tabHeight} min={0.1} step={0.1} unit="mm" onChange={(v) => set({ tabHeight: v })} />}
         </div>
-        {fine && <Toggle label="Werkzeugradius ausgleichen (Löcher innen, Umriss außen)" checked={s.compensate} onChange={(v) => set({ compensate: v })} />}
+        {experte && <Toggle label="Werkzeugradius ausgleichen (Löcher innen, Umriss außen)" checked={s.compensate} onChange={(v) => set({ compensate: v })} />}
         <p className="text-[11px] leading-snug text-fg3">Haltestege nur am Plattenumriss. Durchbrüche werden zuletzt gefräst, der Umriss ganz am Ende.</p>
       </Group>
     </StepFrame>
@@ -244,7 +244,7 @@ export function SelectStep({ s, set, contours, brush, setBrush, mode }: {
         <Button onClick={() => { const ops = { ...s.ops }; outer.forEach((c) => { ops[String(c.id)] = 'cut'; }); set({ ops }); }} disabled={!outer.length} title="Plattenrand durchfräsen">Außenkante = Durchbruch</Button>
         <Button onClick={() => set({ ops: {} })} icon={<RotateCcw {...ICON} />} disabled={!Object.keys(s.ops).length}>Zurücksetzen</Button>
       </div>
-      {visibleIn(mode, 'fine') && (
+      {visibleIn(mode, 'experte') && (
         <Field label="Kürzer als … ignorieren" value={s.minLength} min={0} step={0.1} unit="mm" onChange={(v) => set({ minLength: v })} />
       )}
       <div className="max-h-72 overflow-y-auto rounded-md border border-line">
@@ -278,21 +278,21 @@ export function SelectStep({ s, set, contours, brush, setBrush, mode }: {
 export function ToolStep({ s, set, mode }: { s: Settings; set: (p: Partial<Settings>) => void; mode: Mode }) {
   const t = s.tool;
   const isV = t.tipAngle > 0;
-  const fine = visibleIn(mode, 'fine');
+  const experte = visibleIn(mode, 'experte');
   const width = t.tipDia + 2 * s.engraveDepth * Math.tan((t.tipAngle * Math.PI) / 360);
   return (
     <StepFrame title="Werkzeug" lead="Das Werkzeug erscheint über dem Nullpunkt. Die Maße bestimmen Gravurbreite und Radiusausgleich.">
       <Segmented value={isV ? 'v' : 'flat'} onChange={(v) => set({ tool: { ...t, tipAngle: v === 'v' ? 30 : 0, tipDia: v === 'v' ? 0.2 : 2 } })}
         options={[{ value: 'v', label: 'V-Stichel', hint: 'Kegelförmig – für Gravuren' }, { value: 'flat', label: 'Schaftfräser', hint: 'Zylindrisch – für Durchbrüche und Taschen' }]} />
-      <div className={cn('grid gap-3', fine ? 'grid-cols-3' : 'grid-cols-1')}>
-        {isV && fine && <Field label="Spitzenwinkel" value={t.tipAngle} min={5} max={120} step={5} unit="°" onChange={(v) => set({ tool: { ...t, tipAngle: v } })} />}
+      <div className={cn('grid gap-3', experte ? 'grid-cols-3' : 'grid-cols-1')}>
+        {isV && experte && <Field label="Spitzenwinkel" value={t.tipAngle} min={5} max={120} step={5} unit="°" onChange={(v) => set({ tool: { ...t, tipAngle: v } })} />}
         <Field label={isV ? 'Spitze Ø' : 'Fräser Ø'} value={t.tipDia} min={0.05} step={0.05} unit="mm" onChange={(v) => set({ tool: { ...t, tipDia: v } })} />
-        {fine && <Field label="Schaft Ø" value={t.shaftDia} min={1} step={0.5} unit="mm" onChange={(v) => set({ tool: { ...t, shaftDia: v } })} />}
+        {experte && <Field label="Schaft Ø" value={t.shaftDia} min={1} step={0.5} unit="mm" onChange={(v) => set({ tool: { ...t, shaftDia: v } })} />}
       </div>
       <Note>Gravurbreite bei <span className="num">{s.engraveDepth.toFixed(2)} mm</span>: <span className="num">{width.toFixed(2)} mm</span>{isV && Object.values(s.ops).includes('cut') ? ' · Durchbrüche werden mit V-Stichel konisch.' : ''}</Note>
-      <div className={cn('grid gap-3', fine ? 'grid-cols-3' : 'grid-cols-2')}>
+      <div className={cn('grid gap-3', experte ? 'grid-cols-3' : 'grid-cols-2')}>
         <Field label="Vorschub" value={s.feedXY} min={10} step={50} unit="mm/min" onChange={(v) => set({ feedXY: v })} />
-        {fine && <Field label="Eintauchen" value={s.feedZ} min={10} step={10} unit="mm/min" onChange={(v) => set({ feedZ: v })} />}
+        {experte && <Field label="Eintauchen" value={s.feedZ} min={10} step={10} unit="mm/min" onChange={(v) => set({ feedZ: v })} />}
         <Field label="Drehzahl" value={s.rpm} min={0} step={500} unit="U/min" onChange={(v) => set({ rpm: v })} />
       </div>
     </StepFrame>
@@ -370,16 +370,16 @@ export function fmtTime(min: number) {
 // 9 ------------------------------------------------------------------------------
 export function ProgramStep({ s, set, mode }: { s: Settings; set: (p: Partial<Settings>) => void; mode: Mode }) {
   const [focus, setFocus] = useState<'start' | 'end'>('start');
-  const fine = visibleIn(mode, 'fine');
+  const experte = visibleIn(mode, 'experte');
   const append = (t: string) => focus === 'start'
     ? set({ startBlock: (s.startBlock.trimEnd() + '\n' + t).trim(), presetId: 'custom' })
     : set({ endBlock: (s.endBlock.trimEnd() + '\n' + t).trim(), presetId: 'custom' });
   return (
-    <StepFrame title="Programm-Rahmen" lead={fine
+    <StepFrame title="Programm-Rahmen" lead={experte
       ? 'Was die Maschine vor und nach dem Fräsen tun soll. Ziehe eine Vorlage oder einzelne Befehle in die Felder – oder klicke, um sie am Ende anzuhängen.'
-      : 'Was die Maschine vor und nach dem Fräsen tun soll. Wähle eine Vorlage – eigene Befehle und Zeilen kommen im Modus „Fein“ dazu.'}>
+      : 'Was die Maschine vor und nach dem Fräsen tun soll. Wähle eine Vorlage – eigene Befehle und Zeilen kommen im Modus „Experte“ dazu.'}>
       <div>
-        <div className="mb-1 text-[12px] text-fg2">Vorlagen <span className="text-fg3">· {fine ? 'Klick setzt Start und Ende, Ziehen fügt ein' : 'Klick setzt Start und Ende'}</span></div>
+        <div className="mb-1 text-[12px] text-fg2">Vorlagen <span className="text-fg3">· {experte ? 'Klick setzt Start und Ende, Ziehen fügt ein' : 'Klick setzt Start und Ende'}</span></div>
         <div className="flex flex-wrap gap-1.5">
           {PRESETS.map((p) => (
             <CodeChip key={p.id} label={p.name} code={focus === 'start' ? p.start : p.end} hint={`Start:\n${p.start}\n\nEnde:\n${p.end}`}
@@ -388,13 +388,13 @@ export function ProgramStep({ s, set, mode }: { s: Settings; set: (p: Partial<Se
           ))}
         </div>
       </div>
-      {fine && (
+      {experte && (
         <>
           <CodeArea label="Start" value={s.startBlock} onChange={(v) => set({ startBlock: v, presetId: 'custom' })} onFocus={() => setFocus('start')} active={focus === 'start'} />
           <CodeArea label="Ende" value={s.endBlock} onChange={(v) => set({ endBlock: v, presetId: 'custom' })} onFocus={() => setFocus('end')} active={focus === 'end'} />
         </>
       )}
-      {fine && (
+      {experte && (
         <div>
           <div className="mb-1 text-[12px] text-fg2">Befehle <span className="text-fg3">· Klick hängt an „{focus === 'start' ? 'Start' : 'Ende'}“ an</span></div>
           <div className="flex flex-wrap gap-1.5">
@@ -406,7 +406,7 @@ export function ProgramStep({ s, set, mode }: { s: Settings; set: (p: Partial<Se
         <div className="mb-1 text-[11px] text-fg3">So sieht der Start aktuell aufgelöst aus</div>
         <pre className="num whitespace-pre-wrap text-[11.5px] leading-relaxed text-fg2">{fillPlaceholders(s.startBlock, s)}</pre>
       </div>
-      {fine && <p className="text-[11px] text-fg3">Platzhalter: <span className="num">{'{rpm}'}</span> Drehzahl · <span className="num">{'{safe}'}</span> Sicherheitshöhe · <span className="num">{'{feed}'}</span> Vorschub</p>}
+      {experte && <p className="text-[11px] text-fg3">Platzhalter: <span className="num">{'{rpm}'}</span> Drehzahl · <span className="num">{'{safe}'}</span> Sicherheitshöhe · <span className="num">{'{feed}'}</span> Vorschub</p>}
     </StepFrame>
   );
 }
@@ -448,7 +448,7 @@ export function ExportStep({ gcode, fileName, tp, view, setView, mode }: { gcode
             <div className="mb-1 text-[12px] text-fg2">Rechts anzeigen</div>
             <Segmented value={view} onChange={setView} options={[{ value: 'code', label: 'G-Code' }, { value: 'stage', label: '3D-Weg' }]} />
           </div>
-          {visibleIn(mode, 'fine') && (
+          {visibleIn(mode, 'experte') && (
             <div className="num flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-fg3">
               <span><span className="text-danger">G0</span> Eilgang</span><span><span className="text-accent">G1</span> Fräsen</span><span><span className="text-warn">M3</span> Maschine</span><span><span className="text-ok">F</span> Vorschub</span>
             </div>

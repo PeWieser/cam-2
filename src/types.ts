@@ -130,31 +130,31 @@ export type StepId = 'model' | 'orient' | 'slice' | 'origin' | 'machining' | 'se
 
 /**
  * Arbeitsmodus – wie viele Stellschrauben gezeigt werden.
- * „Schnell“ lässt ganze Schritte weg (alles Nötige steht auf bewährten Werten),
- * „Standard“ zeigt den üblichen Weg, „Fein“ zusätzlich die Feineinstellungen.
+ * „Einfach“ lässt ganze Schritte weg (alles Nötige steht auf bewährten Werten),
+ * „Standard“ zeigt den üblichen Weg, „Experte“ zusätzlich die Feineinstellungen.
  */
-export type Mode = 'quick' | 'standard' | 'fine';
+export type Mode = 'einfach' | 'standard' | 'experte';
 
-export const MODES: Mode[] = ['quick', 'standard', 'fine'];
+export const MODES: Mode[] = ['einfach', 'standard', 'experte'];
 
-export const MODE_LABEL: Record<Mode, string> = { quick: 'Schnell', standard: 'Standard', fine: 'Fein' };
+export const MODE_LABEL: Record<Mode, string> = { einfach: 'Einfach', standard: 'Standard', experte: 'Experte' };
 
 export const MODE_HINT: Record<Mode, string> = {
-  quick: 'Kurzer Weg: Modell rein, Gravur einstellen, berechnen, G-Code raus',
+  einfach: 'Kurzer Weg: Modell rein, Gravur einstellen, berechnen, G-Code raus',
   standard: 'Üblicher Weg: ausrichten, schneiden, Linien zuweisen, fertig',
-  fine: 'Alle Stellschrauben: Kurvengenauigkeit, Radiusausgleich, Stege, eigener Programmrahmen',
+  experte: 'Alle Stellschrauben: Kurvengenauigkeit, Radiusausgleich, Stege, eigener Programmrahmen',
 };
 
-const MODE_RANK: Record<Mode, number> = { quick: 0, standard: 1, fine: 2 };
+const MODE_RANK: Record<Mode, number> = { einfach: 0, standard: 1, experte: 2 };
 
 /** Ist ein Feld im gegebenen Modus sichtbar? `min` = niedrigster Modus, der es zeigt. */
 export const visibleIn = (mode: Mode, min: Mode = 'standard') => MODE_RANK[mode] >= MODE_RANK[min];
 
 /** Schritte je Modus; die Reihenfolge richtet sich immer nach STEPS. */
 export const MODE_STEPS: Record<Mode, StepId[]> = {
-  quick: ['model', 'machining', 'compute', 'export'],
+  einfach: ['model', 'machining', 'compute', 'export'],
   standard: ['model', 'orient', 'slice', 'origin', 'machining', 'select', 'tool', 'compute', 'program', 'export'],
-  fine: ['model', 'orient', 'slice', 'origin', 'machining', 'select', 'tool', 'compute', 'program', 'export'],
+  experte: ['model', 'orient', 'slice', 'origin', 'machining', 'select', 'tool', 'compute', 'program', 'export'],
 };
 
 export const STEPS: { id: StepId; title: string }[] = [
