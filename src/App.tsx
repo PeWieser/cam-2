@@ -1,5 +1,6 @@
 import { Component, useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Check, ChevronLeft, ChevronRight, Redo2, Undo2, Upload } from 'lucide-react';
+import favicon from './assets/favicon.svg';
 import Stage from './components/Stage';
 import CodeView from './components/CodeView';
 import { ComputeStep, ExportStep, MachiningStep, ModelStep, OrientStep, OriginStep, ProgramStep, SelectStep, SliceStep, ToolStep, OP_COLOR } from './components/steps';
@@ -115,8 +116,8 @@ function Workbench() {
 
       <header className="flex h-11 shrink-0 items-center justify-between border-b border-line bg-s1 px-3">
         <div className="flex items-center gap-2">
-          <span className="flex h-5 w-5 items-center justify-center rounded bg-accent text-[10px] font-bold text-accent-fg">S</span>
-          <span className="text-[13px] font-semibold tracking-tight">Stichel</span>
+          <img src={favicon} alt="" aria-hidden="true" className="h-5 w-5 rounded-[5px]" />
+          <span className="text-[13px] font-semibold tracking-tight">Gravura</span>
           <span className="hidden text-[12px] text-fg3 sm:block">· Frontplatten aus 3D-Modellen fräsen</span>
         </div>
         <div className="flex items-center gap-1">

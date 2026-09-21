@@ -1,10 +1,10 @@
-# Stichel – Designprotokoll
+# Gravura – Designprotokoll
 
 ## Ablauf (verbindlich)
 1. Modell laden (Drag & Drop / Datei) → 2. Oberseite wählen → 3. Schnittebene (Tiefe unter Oberkante, Konturen live)
 → 4. Nullpunkt (3×3 + Z-Referenz, Pfeile auf der Bühne) → 5. Gravur (Strategie, Tiefe, Zustellung, Sicherheitshöhe)
 → 6. Auswahl (Konturen per Klick auf der Bühne überspringen, „Außenkante überspringen“)
-→ 7. Werkzeug (Stichel in 3D über dem Nullpunkt) → 8. Berechnen (nur manuell; 3D-Weg + Simulation, 2D = Ansicht von oben)
+→ 7. Werkzeug (Spitze in 3D über dem Nullpunkt) → 8. Berechnen (nur manuell; 3D-Weg + Simulation, 2D = Ansicht von oben)
 → 9. Programm (Start/Ende, Presets GRBL/LinuxCNC/Marlin/minimal, Snippets) → 10. Export (Download, Kopieren, Strg+C).
 
 ## Befund → Maßnahme
@@ -28,3 +28,9 @@ Strg+Z / Strg+Shift+Z Undo/Redo · Alt+←/→ Schritt · Esc stoppt Simulation 
 - Befund: Presets nur klickbar. Maßnahme: Vorlagen und Befehle als ziehbare Code-Chips; Drop-Linie im Textfeld, eingefügte Zeilen blitzen kurz auf.
 - Befund: G-Code nur als Datei. Maßnahme: Code-Ansicht im Export (virtualisiert, Syntaxfarben, Zeilennummern), Umschalter zu 3D-Weg.
 - Materialstärke wird beim Laden aus der Modellhöhe vorbelegt; Z0 „Unterseite“ für sichere Durchbrüche.
+
+## Marke & Icon
+- Name: **Gravura** (Kurzform für Gravur; im Header als Wortmarke, im `<title>` als „Gravura – 3D-Modell zu Gravur-G-Code“).
+- Icon: Werkstückoberfläche mit V-Nut im Schnitt – ein Strich, der in die Tiefe läuft. Quadratische Kachel mit Akzent-Farbverlauf, weiße Linie; lesbar ab 16 px, Funktion vor Dekoration.
+- Quelle: `src/assets/favicon.svg`. Ableitungen (favicon.ico 16/32/48, apple-touch-icon 180, icon-192/512, icon-maskable-512 und die Data-URI in `index.html`) entstehen mit `npm run icons` – nach jeder Änderung am SVG ausführen.
+- Das Vektor-Icon liegt zusätzlich als Data-URI in `index.html`, damit der Single-File-Build ohne Neben-Dateien funktioniert.

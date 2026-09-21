@@ -3,7 +3,7 @@ import { cn } from '../utils/cn';
 
 const LINE_H = 20;
 const PAD = 8;
-export const DND_TYPE = 'application/x-stichel-gcode';
+export const DND_TYPE = 'application/x-gravura-gcode';
 
 /** Textfeld für G-Code-Blöcke mit Drop-Zone: Chips/Presets fallen als Zeilen hinein */
 export function CodeArea({ label, value, onChange, onFocus, active, rows = 5 }: {
