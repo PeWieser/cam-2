@@ -35,6 +35,14 @@ Strg+Z / Strg+Shift+Z Undo/Redo · Alt+←/→ Schritt · Esc stoppt Simulation 
 - Quelle: `src/assets/favicon.svg`. Ableitungen (favicon.ico 16/32/48, icon-192/512, icon-maskable-512, apple-touch-icon 120/152/167/180 und die Data-URI in `index.html`) entstehen mit `npm run icons` – nach jeder Änderung am SVG ausführen.
 - Das Vektor-Icon liegt zusätzlich als Data-URI in `index.html`, damit der Single-File-Build ohne Neben-Dateien funktioniert.
 
+## Responsiv
+- Drei Stufen, am Bildschirmrand gemessen: **Handy** (< 768 px) stellen wir um – Schritte als waagerechte Leiste oben, Bühne darüber (45 % der Höhe, mindestens 220 px), Einstellungen darunter mit eigener Rolleiste und Zurück/Weiter am unteren Rand. **Tablet** (768–1023 px) behält drei Spalten, nur schmaler (148 px Ablauf, 320 px Einstellungen). **Desktop** ab 1024 px bleibt, wie er ist (168/380 px).
+- Befund: Der Umschalter und die Werkzeugleiste passen auf dem Handy nicht neben die Wortmarke. Maßnahme: der Kopf darf in zwei Zeilen umbrechen – die Einstellungen stehen dann rechts in der zweiten Zeile. Der Beisatz hinter dem Namen weicht aus (`truncate`), der Modus-Umschalter nie.
+- Befund: Auf dem Handy ist „Zurück/Weiter“ weit weg. Maßnahme: die Fußzeile der Einstellungen sitzt als unterste Zeile direkt am Daumen, mit `env(safe-area-inset-bottom)` über der Home-Leiste.
+- Befund: Mobilbrowser rechnen 100 % Höhe hinter der Adressleiste zu groß. Maßnahme: `100dvh`, wo unterstützt; `overscroll-behavior: none` verhindert Pull-to-Refresh beim Drehen der Bühne, `touch-action: none` auf dem Canvas gibt Fingerbewegungen an die Steuerung.
+- Die Bühne hängt an einem `ResizeObserver` – sie folgt jeder Layoutänderung ohne eigenes Neuladen.
+- Regel: Erst umstellen (Handy), dann verschmälern (Tablet), nie bloß skalieren. Bedienelemente bleiben in Daumenreichweite, die Bühne bekommt den Platz, der übrig bleibt.
+
 ## Teilen & Homescreen
 - Vorschaukarte für WhatsApp, Teams, Telegram, Slack: `public/og-image.png` (1200×630) aus `src/assets/og-image.svg` per `npm run og`. Großes Motiv links, Wortmarke und zwei Zeilen Text rechts – in der Miniatur zählt das Bild, nicht der Text.
 - `index.html` trägt OG- und Twitter-Tags inklusive Bildmaßen und `canonical`. Die Adressen sind absolut auf <https://cam.mankind.lol>, weil X/Twitter und Facebook relative Angaben nicht auflösen. Zieht die App um: Domain in `og:url`, `og:image`, `twitter:image` und `canonical` ändern.

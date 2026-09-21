@@ -45,8 +45,13 @@
 }
 
 html, body, #root { height: 100%; }
+/* Mobilbrowser: 100 % ist hinter der Adressleiste zu groß, dvh rechnet sie heraus */
+@supports (height: 100dvh) {
+  html, body, #root { height: 100dvh; }
+}
 body {
   margin: 0;
+  overscroll-behavior: none; /* kein Pull-to-refresh beim Drehen der Bühne */
   background: var(--mw-bg);
   color: var(--mw-fg);
   font-family: var(--font-sans);
@@ -55,6 +60,8 @@ body {
 }
 
 .num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+
+canvas { display: block; touch-action: none; } /* Bühne: Finger statt Scrollen */
 
 *:focus-visible {
   outline: 2px solid var(--mw-accent);

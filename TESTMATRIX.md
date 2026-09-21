@@ -86,3 +86,15 @@ Legende: ✅ funktioniert · 🔧 in dieser Runde ergänzt · ⚠️ mit Einschr
 | F7 | „Einfach“ erzeugt dasselbe Programm wie „Experte“ mit Werkseinstellungen | ✅ (Test) | gleiche Pipeline, keine eigenen Standardwerte |
 | F8 | Umschalter beschriftet alle drei Modi vollständig | 🔧 | Breite nach Inhalt, kein Abschneiden von „Standard“ |
 | F9 | „Einstellungen zurücksetzen“ im Header löscht Modus-werte nicht, aber alle Einstellungen | 🔧 | rückgängig machbar, Knopf inaktiv auf Werkseinstellung |
+
+## G · Bildschirme
+| # | Szenario | Status | Anmerkung |
+|---|---|---|---|
+| G1 | Handy (< 768 px): Schrittleiste waagerecht, Bühne darüber, Einstellungen darunter | 🔧 | umgestellte Reihenfolge; Einstellungen rollen selbst, Fußzeile bleibt sichtbar |
+| G2 | Handy: aktueller Schritt wird in der Leiste nachgezogen | 🔧 | scrollIntoView beim Schrittwechsel |
+| G3 | Handy: zweizeiliger Kopf, Umschalter bleibt vollständig | 🔧 | Modus-Umschalter gibt keine Breite ab, Beisatz wird gekürzt |
+| G4 | Tablet (768–1023 px): drei Spalten, schmaler | 🔧 | 148 px Ablauf, 320 px Einstellungen |
+| G5 | Desktop (≥ 1024 px): unverändert | ✅ | 168 px Ablauf, 380 px Einstellungen |
+| G6 | Bühne folgt Größenänderungen | ✅ | ResizeObserver |
+| G7 | Drehen/Zoomen mit dem Finger, kein Pull-to-Refresh | 🔧 | touch-action, overscroll-behavior |
+| G8 | Home-Leiste (iOS) verdeckt „Zurück/Weiter“ nicht | 🔧 | env(safe-area-inset-bottom) |
