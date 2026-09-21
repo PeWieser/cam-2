@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" width="1200" height="630" role="img" aria-label="Gravura – Frontplatten aus 3D-Modellen fräsen">
+  <title>Gravura – Frontplatten aus 3D-Modellen fräsen</title>
+  <defs>
+    <linearGradient id="og-tile" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#4f8ff7" />
+      <stop offset="1" stop-color="#1d4ed8" />
+    </linearGradient>
+  </defs>
+
+  <rect width="1200" height="630" fill="#0e0e10" />
+
+  <!-- Motiv: V-Nut im Werkstück (wie das App-Icon, nur groß) -->
+  <g transform="translate(110 115) scale(12.5)" aria-hidden="true">
+    <rect width="32" height="32" rx="7.5" fill="url(#og-tile)" />
+    <path d="M5 11.5h5.6L16 21l5.4-9.5H27" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" />
+  </g>
+
+  <g font-family="Geist SemiBold, Geist Variable, Geist, Helvetica, Arial, sans-serif">
+    <text x="580" y="290" font-size="84" font-weight="600" fill="#ededef" letter-spacing="-1.5">Gravura</text>
+  </g>
+  <g font-family="Geist, Geist Variable, Helvetica, Arial, sans-serif">
+    <text x="580" y="344" font-size="28" fill="#a1a1aa">Frontplatten aus 3D-Modellen fräsen</text>
+  </g>
+  <g font-family="Geist Mono, Geist Mono Variable, ui-monospace, monospace">
+    <text x="580" y="392" font-size="22" fill="#6b6b74">STL · OBJ · 3MF · STEP · IGES → G-Code</text>
+  </g>
+</svg>
