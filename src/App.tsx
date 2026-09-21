@@ -133,14 +133,14 @@ function Workbench() {
       onDrop={(e) => { if (!e.dataTransfer.types.includes('Files')) return; e.preventDefault(); setDragOver(false); const f = e.dataTransfer.files?.[0]; if (f) handleFile(f); }}>
 
       <header className="flex h-11 shrink-0 items-center justify-between border-b border-line bg-s1 px-3">
-        <div className="flex items-center gap-2">
-          <img src={favicon} alt="" aria-hidden="true" className="h-5 w-5 rounded-[5px]" />
-          <span className="text-[13px] font-semibold tracking-tight">Gravura</span>
-          <span className="hidden text-[12px] text-fg3 md:block">· Frontplatten aus 3D-Modellen fräsen</span>
+        <div className="flex min-w-0 items-center gap-2">
+          <img src={favicon} alt="" aria-hidden="true" className="h-5 w-5 shrink-0 rounded-[5px]" />
+          <span className="shrink-0 text-[13px] font-semibold tracking-tight">Gravura</span>
+          <span className="hidden truncate text-[12px] text-fg3 md:block">· Frontplatten aus 3D-Modellen fräsen</span>
         </div>
         <div className="flex items-center gap-2">
-          <span className="hidden text-[11px] text-fg3 md:block">Modus</span>
-          <div className="shrink-0" title={MODE_HINT[mode]}>
+          <span className="hidden shrink-0 text-[11px] text-fg3 md:block">Modus</span>
+          <div className="min-w-max shrink-0" title={MODE_HINT[mode]}>
             <Segmented value={mode} onChange={changeMode} options={MODES.map((m) => ({ value: m, label: MODE_LABEL[m], hint: MODE_HINT[m] }))} />
           </div>
           <span className="h-5 w-px shrink-0 bg-line" aria-hidden="true" />
@@ -235,7 +235,7 @@ function Workbench() {
 function IconBtn({ children, onClick, disabled, title }: { children: ReactNode; onClick: () => void; disabled?: boolean; title: string }) {
   return (
     <button onClick={onClick} disabled={disabled} title={title} aria-label={title}
-      className="flex h-7 w-7 items-center justify-center rounded-md text-fg2 transition-colors hover:bg-s3 hover:text-fg disabled:opacity-30 disabled:hover:bg-transparent">
+      className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-fg2 transition-colors hover:bg-s3 hover:text-fg disabled:opacity-30 disabled:hover:bg-transparent">
       {children}
     </button>
   );
