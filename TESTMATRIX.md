@@ -71,3 +71,16 @@ Legende: ✅ funktioniert · 🔧 in dieser Runde ergänzt · ⚠️ mit Einschr
 | E5 | G-Code am Ende als Code lesbar (Syntaxfarben, Zeilennummern) | 🔧 |
 | E6 | Kopieren (Strg+C) und Download | ✅ |
 | E7 | Leerer Zustand mit klarer Einladung | ✅ |
+| E8 | Vorschaukarte beim Teilen (WhatsApp, Teams, Telegram) mit Bild, Titel, Beschreibung | 🔧 |
+| E9 | Auf den Homescreen gelegt (iPhone): eigenes Icon, Name „Gravura“, ohne Browserleisten | 🔧 |
+
+## F · Modi
+| # | Szenario | Status | Anmerkung |
+|---|---|---|---|
+| F1 | „Schnell“: Modell → Gravur → Berechnen → Export | 🔧 | vier Schritte; Ausrichtung, Schnittebene, Nullpunkt, Auswahl und Werkzeug auf Werkseinstellung |
+| F2 | „Standard“: alle Schritte ohne Feineinstellungen | 🔧 | Kurvengenauigkeit, Zeilenabstand, Radiusausgleich, Stegmaße, Maßstab, Eintauchen und eigene Programmzeilen fehlen |
+| F3 | „Fein“: vollständiger Umfang | ✅ | wie vor den Modi |
+| F4 | Wechsel auf „Schnell“ mit mehreren Ebenen und Zuweisungen | 🔧 | eine Ebene, Zuweisung zurückgesetzt – rückgängig machbar |
+| F5 | Wechsel aus einem Schritt, den der neue Modus nicht kennt | 🔧 | Sprung auf den letzten gemeinsamen Schritt |
+| F6 | Modus übersteht einen Neustart | 🔧 | im Browser gemerkt; bei gesperrtem Speicher „Standard“ |
+| F7 | „Schnell“ erzeugt dasselbe Programm wie „Fein“ mit Werkseinstellungen | ✅ (Test) | gleiche Pipeline, keine eigenen Standardwerte |
