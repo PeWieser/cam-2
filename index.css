@@ -1,0 +1,92 @@
+@import "tailwindcss";
+@import "@fontsource-variable/geist";
+@import "@fontsource-variable/geist-mono";
+
+:root {
+  color-scheme: dark light;
+  --mw-bg: light-dark(#f4f4f5, #0e0e10);
+  --mw-surface-1: light-dark(#ffffff, #141416);
+  --mw-surface-2: light-dark(#fafafa, #1a1a1d);
+  --mw-surface-3: light-dark(#f1f1f3, #212124);
+  --mw-surface-4: light-dark(#e8e8eb, #29292d);
+  --mw-border: light-dark(rgba(0, 0, 0, 0.09), rgba(255, 255, 255, 0.09));
+  --mw-border-strong: light-dark(rgba(0, 0, 0, 0.18), rgba(255, 255, 255, 0.18));
+  --mw-fg: light-dark(#18181b, #ededef);
+  --mw-fg-2: light-dark(#52525b, #a1a1aa);
+  --mw-fg-3: light-dark(#8e8e96, #6b6b74);
+  --mw-accent: light-dark(#2563eb, #3b82f6);
+  --mw-accent-fg: #ffffff;
+  --mw-accent-soft: light-dark(rgba(37, 99, 235, 0.12), rgba(59, 130, 246, 0.18));
+  --mw-danger: light-dark(#dc2626, #f87171);
+  --mw-warn: light-dark(#b45309, #fbbf24);
+  --mw-ok: light-dark(#15803d, #4ade80);
+  --mw-shadow: light-dark(0 1px 2px rgba(0,0,0,.06), 0 1px 2px rgba(0,0,0,.5));
+}
+
+@theme inline {
+  --color-bg: var(--mw-bg);
+  --color-s1: var(--mw-surface-1);
+  --color-s2: var(--mw-surface-2);
+  --color-s3: var(--mw-surface-3);
+  --color-s4: var(--mw-surface-4);
+  --color-line: var(--mw-border);
+  --color-line-strong: var(--mw-border-strong);
+  --color-fg: var(--mw-fg);
+  --color-fg2: var(--mw-fg-2);
+  --color-fg3: var(--mw-fg-3);
+  --color-accent: var(--mw-accent);
+  --color-accent-fg: var(--mw-accent-fg);
+  --color-accent-soft: var(--mw-accent-soft);
+  --color-danger: var(--mw-danger);
+  --color-warn: var(--mw-warn);
+  --color-ok: var(--mw-ok);
+  --font-sans: "Geist Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "Geist Mono Variable", ui-monospace, monospace;
+}
+
+html, body, #root { height: 100%; }
+body {
+  margin: 0;
+  background: var(--mw-bg);
+  color: var(--mw-fg);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  -webkit-font-smoothing: antialiased;
+}
+
+.num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+
+*:focus-visible {
+  outline: 2px solid var(--mw-accent);
+  outline-offset: 1px;
+  border-radius: 4px;
+}
+
+input[type="range"] {
+  -webkit-appearance: none; appearance: none;
+  height: 20px; background: transparent; width: 100%;
+}
+input[type="range"]::-webkit-slider-runnable-track {
+  height: 3px; border-radius: 2px; background: var(--mw-border-strong);
+}
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none;
+  width: 14px; height: 14px; margin-top: -5.5px; border-radius: 50%;
+  background: var(--mw-fg); border: 2px solid var(--mw-surface-1);
+  box-shadow: var(--mw-shadow); transition: transform 150ms cubic-bezier(.2,.8,.2,1);
+}
+input[type="range"]:active::-webkit-slider-thumb { transform: scale(1.15); background: var(--mw-accent); }
+input[type="range"]::-moz-range-track { height: 3px; border-radius: 2px; background: var(--mw-border-strong); }
+input[type="range"]::-moz-range-thumb {
+  width: 12px; height: 12px; border-radius: 50%;
+  background: var(--mw-fg); border: 2px solid var(--mw-surface-1);
+}
+
+input[type="number"]::-webkit-inner-spin-button { opacity: 0.4; }
+
+.fade-in { animation: fade 180ms cubic-bezier(.2,.8,.2,1); }
+@keyframes fade { from { opacity: 0; transform: translateY(2px); } to { opacity: 1; transform: none; } }
+
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-thumb { background: var(--mw-border-strong); border-radius: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
