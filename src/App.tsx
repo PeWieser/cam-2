@@ -4,21 +4,31 @@ import favicon from './assets/favicon.svg';
 import Stage from './components/Stage';
 import CodeView from './components/CodeView';
 import { ComputeStep, ExportStep, MachiningStep, ModelStep, OrientStep, OriginStep, ProgramStep, SelectStep, SliceStep, ToolStep, OP_COLOR } from './components/steps';
+import { Segmented } from './components/ui';
 import { useSettings } from './store';
 import { loadModelFile } from './lib/loaders';
 import { activeContours, computeToolpath, levelZ, opOf, orientMesh, originPoint, settingsKey, sliceLevels } from './lib/toolpath';
 import { generateGcode } from './lib/gcode';
-import { OP_LABEL, STEPS, type MeshData, type Op, type StepId, type Toolpath } from './types';
+import { MODE_HINT, MODE_LABEL, MODE_STEPS, MODES, OP_LABEL, STEPS, type MeshData, type Mode, type Op, type StepId, type Toolpath } from './types';
 import { cn } from './utils/cn';
 
 export default function App() {
   return <ErrorBoundary><Workbench /></ErrorBoundary>;
 }
 
+const MODE_KEY = 'gravura:mode';
+const loadMode = (): Mode => {
+  try {
+    const m = localStorage.getItem(MODE_KEY);
+    return MODES.includes(m as Mode) ? (m as Mode) : 'standard';
+  } catch { return 'standard'; } // Speicher gesperrt (z. B. Safari ohne Cookies)
+};
+
 function Workbench() {
   const { settings: s, set, undo, redo, canUndo, canRedo } = useSettings();
   const [mesh, setMesh] = useState<MeshData | null>(null);
   const [step, setStep] = useState<StepId>('model');
+  const [mode, setMode] = useState<Mode>(loadMode);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
@@ -47,11 +57,11 @@ function Workbench() {
       setMesh(m); setTp(null); setProgress(0); setLevel(0);
       const o = orientMesh(m, s);
       set({ ops: {}, material: +(o.max[2] - o.min[2]).toFixed(2) });
-      setStep('orient');
+      setStep(MODE_STEPS[mode][1]); // erster Schritt nach dem Laden – je Modus verschieden
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Datei konnte nicht gelesen werden.');
     } finally { setLoading(false); }
-  }, [set, s]);
+  }, [set, s, mode]);
 
   const compute = useCallback(() => {
     if (!om) return;
@@ -67,13 +77,30 @@ function Workbench() {
     }, 20);
   }, [om, contours, s]);
 
-  const idx = STEPS.findIndex((x) => x.id === step);
+  // Schritte des aktiven Modus („Schnell“ blendet ganze Schritte aus)
+  const steps = useMemo(() => STEPS.filter((x) => MODE_STEPS[mode].includes(x.id)), [mode]);
+  const idx = steps.findIndex((x) => x.id === step);
   const canGo = (id: StepId) => id === 'model' || !!mesh;
   const go = useCallback((dir: 1 | -1) => {
-    const n = STEPS[idx + dir];
+    const n = steps[idx + dir];
     if (n && canGo(n.id)) setStep(n.id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [idx, mesh]);
+  }, [idx, mesh, steps]);
+
+  /** Modus wechseln: Schritte und Voreinstellungen anpassen, Auswahl merken */
+  const changeMode = useCallback((m: Mode) => {
+    setMode(m);
+    try { localStorage.setItem(MODE_KEY, m); } catch { /* Speicher gesperrt – Auswahl gilt nur für diese Sitzung */ }
+    if (m === 'quick') set({ sliceOffsets: [s.sliceOffsets[0] ?? 0.1], ops: {} }); // nur eine Ebene, alle Linien = Gravur
+    setStep((cur) => {
+      const visible = MODE_STEPS[m];
+      if (visible.includes(cur)) return cur;
+      const order = STEPS.map((x) => x.id);
+      let at = order.indexOf(cur);
+      while (at > 0 && !visible.includes(order[at])) at--; // letzten sichtbaren Schritt davor
+      return visible.includes(order[at]) ? order[at] : 'model';
+    });
+  }, [set, s.sliceOffsets]);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement;
@@ -96,15 +123,15 @@ function Workbench() {
   const panel = (() => {
     switch (step) {
       case 'model': return <ModelStep mesh={mesh} onFile={handleFile} loading={loading} />;
-      case 'orient': return <OrientStep s={s} set={set} om={om} />;
-      case 'slice': return <SliceStep s={s} set={set} om={om} contours={contours} level={level} setLevel={setLevel} />;
+      case 'orient': return <OrientStep s={s} set={set} om={om} mode={mode} />;
+      case 'slice': return <SliceStep s={s} set={set} om={om} contours={contours} level={level} setLevel={setLevel} mode={mode} />;
       case 'origin': return <OriginStep s={s} set={set} />;
-      case 'machining': return <MachiningStep s={s} set={set} om={om} />;
-      case 'select': return <SelectStep s={s} set={set} contours={contours} brush={brush} setBrush={setBrush} />;
-      case 'tool': return <ToolStep s={s} set={set} />;
+      case 'machining': return <MachiningStep s={s} set={set} om={om} mode={mode} />;
+      case 'select': return <SelectStep s={s} set={set} contours={contours} brush={brush} setBrush={setBrush} mode={mode} />;
+      case 'tool': return <ToolStep s={s} set={set} mode={mode} />;
       case 'compute': return <ComputeStep tp={tp} stale={stale} computing={computing} onCompute={compute} progress={progress} setProgress={setProgress} view={view} setView={setView} canCompute={activeCount > 0} />;
-      case 'program': return <ProgramStep s={s} set={set} />;
-      case 'export': return <ExportStep gcode={gcode} fileName={mesh?.name ?? 'programm'} tp={tp && !stale ? tp : null} view={exportView} setView={setExportView} />;
+      case 'program': return <ProgramStep s={s} set={set} mode={mode} />;
+      case 'export': return <ExportStep gcode={gcode} fileName={mesh?.name ?? 'programm'} tp={tp && !stale ? tp : null} view={exportView} setView={setExportView} mode={mode} />;
     }
   })();
 
@@ -120,7 +147,12 @@ function Workbench() {
           <span className="text-[13px] font-semibold tracking-tight">Gravura</span>
           <span className="hidden text-[12px] text-fg3 sm:block">· Frontplatten aus 3D-Modellen fräsen</span>
         </div>
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-2">
+          <span className="hidden text-[11px] text-fg3 lg:block">Modus</span>
+          <div className="w-[188px]" title={MODE_HINT[mode]}>
+            <Segmented value={mode} onChange={changeMode} options={MODES.map((m) => ({ value: m, label: MODE_LABEL[m], hint: MODE_HINT[m] }))} />
+          </div>
+          <span className="h-5 w-px bg-line" aria-hidden="true" />
           <IconBtn onClick={undo} disabled={!canUndo} title="Rückgängig (Strg+Z)"><Undo2 size={15} strokeWidth={1.7} /></IconBtn>
           <IconBtn onClick={redo} disabled={!canRedo} title="Wiederholen (Strg+Shift+Z)"><Redo2 size={15} strokeWidth={1.7} /></IconBtn>
           {mesh && <span className="num ml-2 hidden max-w-[260px] truncate text-[12px] text-fg3 md:block">{mesh.name}</span>}
@@ -136,7 +168,7 @@ function Workbench() {
 
       <div className="flex min-h-0 flex-1">
         <nav className="flex w-[168px] shrink-0 flex-col border-r border-line bg-s1 py-2" aria-label="Ablauf">
-          {STEPS.map((x, i) => {
+          {steps.map((x, i) => {
             const enabled = canGo(x.id);
             const done = i < idx;
             return (
@@ -158,7 +190,7 @@ function Workbench() {
             <button onClick={() => go(-1)} disabled={idx === 0} className="inline-flex h-8 items-center gap-1 rounded-md px-2 text-[12.5px] text-fg2 hover:text-fg disabled:opacity-30">
               <ChevronLeft size={15} strokeWidth={1.7} /> Zurück
             </button>
-            {idx < STEPS.length - 1 && (
+            {idx < steps.length - 1 && (
               <button onClick={() => go(1)} disabled={!mesh} className="inline-flex h-8 items-center gap-1 rounded-md bg-accent px-3 text-[12.5px] font-medium text-accent-fg hover:brightness-110 disabled:opacity-30">
                 Weiter <ChevronRight size={15} strokeWidth={1.7} />
               </button>
