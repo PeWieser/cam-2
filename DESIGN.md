@@ -37,7 +37,7 @@ Strg+Z / Strg+Shift+Z Undo/Redo · Alt+←/→ Schritt · Esc stoppt Simulation 
 
 ## Teilen & Homescreen
 - Vorschaukarte für WhatsApp, Teams, Telegram, Slack: `public/og-image.png` (1200×630) aus `src/assets/og-image.svg` per `npm run og`. Großes Motiv links, Wortmarke und zwei Zeilen Text rechts – in der Miniatur zählt das Bild, nicht der Text.
-- `index.html` trägt OG- und Twitter-Tags inklusive Bildmaßen. Die Adressen sind relativ; sobald die Domain feststeht, in `og:image` und `og:url` absolut eintragen (Kommentar im HTML) – X/Twitter und Facebook verlangen das.
+- `index.html` trägt OG- und Twitter-Tags inklusive Bildmaßen und `canonical`. Die Adressen sind absolut auf <https://cam.mankind.lol>, weil X/Twitter und Facebook relative Angaben nicht auflösen. Zieht die App um: Domain in `og:url`, `og:image`, `twitter:image` und `canonical` ändern.
 - Homescreen (iPhone/iPad): randlose `apple-touch-icon-{120,152,167,180}.png` – iOS rundet selbst und will keine Transparenz. `apple-mobile-web-app-title` beschriftet das Icon, `apple-mobile-web-app-capable` startet ohne Safari-Leisten. Farbe der Statusleiste: `default` (kein `black-translucent`, sonst läuft der Inhalt darunter weg).
 - Schrift im Vorschaubild: Geist als Teilmenge unter `assets/fonts/` inklusive Lizenz (OFL). Fehlt sie, rendert `npm run og` mit einer Systemschrift und warnt.
 
@@ -46,13 +46,15 @@ Wähler im Header („Modus“ links neben Undo/Redo). Die Wahl wird im Browser 
 
 | Modus | Schritte | Es fehlen |
 | --- | --- | --- |
-| **Schnell** | Modell → Gravur → Berechnen → Export | Ausrichten, Schnittebenen, Nullpunkt, Auswahl, Werkzeug, Programm |
+| **Einfach** | Modell → Gravur → Berechnen → Export | Ausrichten, Schnittebenen, Nullpunkt, Auswahl, Werkzeug, Programm |
 | **Standard** | alle zehn | Feineinstellungen: Kurvengenauigkeit, Zeilenabstand, Radiusausgleich, Stegmaße, Maßstab, Eintauchen, eigene Programmzeilen |
-| **Fein** | alle zehn | nichts |
+| **Experte** | alle zehn | nichts |
 
-- Befund: Zehn Schritte und jede Stellschraube überfordern, wenn nur eine Schrift graviert werden soll. Maßnahme: „Schnell“ fragt Gravurtiefe, Werkzeug und Maschine; der Rest steht auf bewährten Werten (Oberseite Z+, eine Schnittebene 0,1 mm unter der Oberkante, Nullpunkt vorne links auf der Oberfläche, alle Linien = Gravur).
-- Befund: Ein Modus-Wechsel darf keine halb eingestellte Maschine zurücklassen. Maßnahme: „Schnell“ reduziert beim Wechsel auf eine Schnittebene und setzt die Linienzuweisung zurück – beides rückgängig machbar.
+- Befund: Zehn Schritte und jede Stellschraube überfordern, wenn nur eine Schrift graviert werden soll. Maßnahme: „Einfach“ fragt Gravurtiefe, Werkzeug und Maschine; der Rest steht auf bewährten Werten (Oberseite Z+, eine Schnittebene 0,1 mm unter der Oberkante, Nullpunkt vorne links auf der Oberfläche, alle Linien = Gravur).
+- Befund: Ein Modus-Wechsel darf keine halb eingestellte Maschine zurücklassen. Maßnahme: „Einfach“ reduziert beim Wechsel auf eine Schnittebene und setzt die Linienzuweisung zurück – beides rückgängig machbar.
 - Befund: Ausgeblendete Schritte dürfen den Ablauf nicht verbiegen. Maßnahme: Nummerierung, „Weiter“ und Alt+←/→ arbeiten auf der gefilterten Liste. Landet man in einem Schritt, den der neue Modus nicht kennt, springt die App auf den letzten gemeinsamen.
-- Befund: „Berechnen“ weglassen spart Zeit, nimmt aber die Kontrolle. Maßnahme: der Knopf bleibt in allen Modi – auch in „Schnell“.
+- Befund: „Berechnen“ weglassen spart Zeit, nimmt aber die Kontrolle. Maßnahme: der Knopf bleibt in allen Modi – auch in „Einfach“.
 - Regel für neue Felder: Ein Feld bekommt eine Modus-Schwelle nur, wenn es im Alltag selten gebraucht wird. Was das Ergebnis sichtbar verändert, bleibt in „Standard“ sichtbar.
 - Die Modi stecken in `MODE_STEPS` (Schritte) und `visibleIn(mode, min)` (Felder). Neue Schritte gehören in `STEPS` **und** in die Liste jedes Modus.
+- Gemerkt wird im Browser: `gravura:mode` (Modus) und `gravura:settings` (alle Einstellungen). Beim Laden fehlende Felder fallen auf die Werkseinstellung zurück – ein altes oder halbes Schema kann die App nicht mehr aus dem Tritt bringen. Der Knopf „Einstellungen zurücksetzen“ im Header löscht beides (und ist rückgängig machbar).
+- Der Umschalter ist ein `Segmented` wie im Rest der App, Breite nach Inhalt (`minmax(max-content, 1fr)`) – Beschriftungen werden nie abgeschnitten. Feste Breiten am Umschalter sind tabu.

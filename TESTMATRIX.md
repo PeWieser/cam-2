@@ -77,10 +77,12 @@ Legende: ✅ funktioniert · 🔧 in dieser Runde ergänzt · ⚠️ mit Einschr
 ## F · Modi
 | # | Szenario | Status | Anmerkung |
 |---|---|---|---|
-| F1 | „Schnell“: Modell → Gravur → Berechnen → Export | 🔧 | vier Schritte; Ausrichtung, Schnittebene, Nullpunkt, Auswahl und Werkzeug auf Werkseinstellung |
+| F1 | „Einfach“: Modell → Gravur → Berechnen → Export | 🔧 | vier Schritte; Ausrichtung, Schnittebene, Nullpunkt, Auswahl und Werkzeug auf Werkseinstellung |
 | F2 | „Standard“: alle Schritte ohne Feineinstellungen | 🔧 | Kurvengenauigkeit, Zeilenabstand, Radiusausgleich, Stegmaße, Maßstab, Eintauchen und eigene Programmzeilen fehlen |
-| F3 | „Fein“: vollständiger Umfang | ✅ | wie vor den Modi |
-| F4 | Wechsel auf „Schnell“ mit mehreren Ebenen und Zuweisungen | 🔧 | eine Ebene, Zuweisung zurückgesetzt – rückgängig machbar |
+| F3 | „Experte“: vollständiger Umfang | ✅ | wie vor den Modi |
+| F4 | Wechsel auf „Einfach“ mit mehreren Ebenen und Zuweisungen | 🔧 | eine Ebene, Zuweisung zurückgesetzt – rückgängig machbar |
 | F5 | Wechsel aus einem Schritt, den der neue Modus nicht kennt | 🔧 | Sprung auf den letzten gemeinsamen Schritt |
-| F6 | Modus übersteht einen Neustart | 🔧 | im Browser gemerkt; bei gesperrtem Speicher „Standard“ |
-| F7 | „Schnell“ erzeugt dasselbe Programm wie „Fein“ mit Werkseinstellungen | ✅ (Test) | gleiche Pipeline, keine eigenen Standardwerte |
+| F6 | Modus **und** Einstellungen überstehen einen Neustart | 🔧 | `gravura:mode` und `gravura:settings` im Browser; altes/halbes Schema fällt auf Werkseinstellung zurück; bei gesperrtem Speicher „Standard“ ohne Fehler |
+| F7 | „Einfach“ erzeugt dasselbe Programm wie „Experte“ mit Werkseinstellungen | ✅ (Test) | gleiche Pipeline, keine eigenen Standardwerte |
+| F8 | Umschalter beschriftet alle drei Modi vollständig | 🔧 | Breite nach Inhalt, kein Abschneiden von „Standard“ |
+| F9 | „Einstellungen zurücksetzen“ im Header löscht Modus-werte nicht, aber alle Einstellungen | 🔧 | rückgängig machbar, Knopf inaktiv auf Werkseinstellung |
