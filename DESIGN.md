@@ -84,6 +84,8 @@ Wähler im Header („Modus“ links neben Undo/Redo). Die Wahl wird im Browser 
   | Verlängern | die mediale Achse biegt am Strichende in die Ecken ab und endet schon eine halbe Strichbreite vor dem Ende. Der Lauf wird deshalb **geradeaus bis kurz vor den Rand verlängert** – Richtung aus den letzten Schritten, nicht aus der letzten Gratrichtung. Schritt für Schritt wird geprüft, ob der Querschnitt noch in der Mitte sitzt: ist er schief (Schieflage > 35 %), bricht die Verlängerung ab. Das ist der Schutz gegen Linien dort, wo gar kein Strich ist |
   | Verbinden | Pfade, die an einer Gabelung auseinandergefallen sind, werden wieder zusammengesetzt – aber nur, wenn der Verbindungsschnitt im Bauteil liegt |
   | Dubletten | Stücke, die fast ganz auf einem anderen liegen (der Grat springt an Gabelungen leicht zur Seite), werden verworfen – sonst fährt der Fräser zweimal über dieselbe Stelle |
+  | Häkchen | Die mediale Achse hat an **jeder** Ecke einen Ast, der auf der Winkelhalbierenden in die Ecke zeigt. Erkennung: dort ist die nächstgelegene Ecke nur 1/sin(α/2)·Abstand entfernt (bei 90° das 1,41-fache des Randabstands). Solche Enden werden gekappt und danach **geradeaus bis an den Rand verlängert** – der Strich kommt am Ende an, aber ohne Bogen in die Ecke. Spitzen bleiben stehen (dort ist die Ecke ein Vielfaches weiter weg), und Ecken mit über 145° werfen kein Häkchen |
+  | Glätten | der 3-Punkt-Glätter wird zurückgenommen, wo sich die Richtung vor und hinter einem Punkt stark ändert (ab ~26° weniger, ab ~46° gar nicht) – sonst wird aus einer Ecke ein Bogen |
 
 - Ergebnis (20 mm langer Strich, 0,6 mm breit, Toleranz 0,03 mm):
 

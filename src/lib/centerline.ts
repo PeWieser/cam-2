@@ -75,9 +75,11 @@ export function computeCenterlines(contours: Contour[], tolerance: number, maxWi
     if (!r || r.area === 0) { out.push(asContour); continue; }
     budget -= r.gw * r.gh;
     const dist = edt2d(r.g, r.gw, r.gh);
+    // Ecken der Region in Rasterkoordinaten – daran werden die Häkchen erkannt
+    const verts = cornerVerts(region, r);
     const tol = Math.max(tolerance * 0.5, r.res * 0.5);
     let found = false;
-    for (const raw of traceRidges(r, dist)) {
+    for (const raw of traceRidges(r, dist, verts)) {
       const pts = raw.map((p) => ({ x: r.ox + p.x * r.res, y: r.oy + p.y * r.res }));
       const s = simplify(smooth(pts, SMOOTH), tol, false);
       if (s.length >= 2) { out.push({ pts: s, centerline: true }); found = true; }
@@ -311,6 +313,11 @@ const RIDGE_MIN = -0.35; // Krümmung quer zum Grat: ab hier gilt die Richtung a
 const PEAK_MAX = -0.6;   // Krümmung entlang des Grates: darunter ist es ein Gipfel (Gabelung)
 const PLATEAU = 10;    // Schritte ohne Grat, nach denen der Lauf abgebrochen wird
 const OFF_CENTER = 0.35; // erlaubte Schieflage des Querschnitts beim Verlängern
+const SMOOTH_MAX = 0.45;   // rad (~26°): bis zu diesem Knick wird voll geglättet
+const SMOOTH_FADE = 0.35;  // rad: darüber nimmt die Glättung ab, ab ~46° gar nicht mehr
+const CORNER_MIN = 1.2;  // rad (~70°): spitzere Ecken sind eine Spitze – ihr Grat gehört zum Strich
+const CORNER_MAX = 2.5;  // rad (~145°): stumpfere Ecken werfen kein Häkchen
+const CORNER_TOL = 1.15; // Toleranz auf den theoretischen Abstand der Winkelhalbierenden
 
 /** bilinear interpolierter Randabstand; Pixel (ix,iy) hat die Mitte (ix+0.5, iy+0.5) */
 function sampleD(dist: Float32Array, gw: number, gh: number, x: number, y: number): number {
@@ -433,7 +440,7 @@ function offCenter(dist: Float32Array, gw: number, gh: number, p: P, dx: number,
  * wird; abgehende Äste werden später als eigener Pfad abgelaufen und enden an
  * der Kreuzung, sobald sie auf einen schon markierten Pfad treffen.
  */
-function traceRidges(r: Raster, dist: Float32Array): P[][] {
+function traceRidges(r: Raster, dist: Float32Array, verts: Vert[]): P[][] {
   const { gw, gh } = r;
   const visited = new Uint8Array(gw * gh);
   const mark = (x: number, y: number) => {
@@ -648,19 +655,134 @@ function traceRidges(r: Raster, dist: Float32Array): P[][] {
     }
     paths.push(pts);
   }
-  return dropDuplicates(linkPaths(paths, dist, gw, gh), dist, gw, gh);
+  return dropDuplicates(linkPaths(pruneHooks(paths, verts, dist, gw, gh), dist, gw, gh), dist, gw, gh);
 }
 
-/** Wenige Züge eines 3-Punkt-Glätters: dämpft das Zittern der Gratrichtung. */
+/**
+ * Ecken einer Region, an denen ein Häkchen entstehen kann, in Rasterkoordinaten.
+ * `k` ist der Abstand von der Ecke zum Grat, gemessen am Randabstand auf der
+ * Winkelhalbierenden: bei einer 90°-Ecke 1/sin(45°) ≈ 1,41. Ecken, an denen kein
+ * Häkchen entsteht, kommen gar nicht erst in die Liste (innen liegende Ecken,
+ * Spitzen, fast gerade Kanten – bei abgeflachten Kurven sitzt sonst an jedem
+ * Stützpunkt eine „Ecke“ und der ganze Strich würde gekappt).
+ */
+type Vert = { x: number; y: number; k: number };
+
+function cornerVerts(cs: Contour[], r: Raster): Vert[] {
+  const out: Vert[] = [];
+  for (const c of cs) {
+    const pts = c.pts;
+    const n = pts.length;
+    if (n < 3) continue;
+    let sa = 0;
+    for (let i = 0, j = n - 1; i < n; j = i++) sa += pts[j].x * pts[i].y - pts[i].x * pts[j].y;
+    const sign = sa >= 0 ? 1 : -1;
+    for (let i = 0; i < n; i++) {
+      const p = pts[i], a = pts[(i + n - 1) % n], b = pts[(i + 1) % n];
+      const e1x = p.x - a.x, e1y = p.y - a.y;
+      const e2x = b.x - p.x, e2y = b.y - p.y;
+      const cross = e1x * e2y - e1y * e2x;
+      if (cross * sign <= 0) continue;                    // nach innen gewölbt → kein Häkchen
+      const la = Math.hypot(e1x, e1y), lb = Math.hypot(e2x, e2y);
+      if (la < 1e-9 || lb < 1e-9) continue;
+      const ang = Math.acos(Math.max(-1, Math.min(1, (e1x * e2x + e1y * e2y) / (la * lb))));
+      if (ang < CORNER_MIN || ang > CORNER_MAX) continue;  // Spitze oder fast gerade
+      out.push({ x: (p.x - r.ox) / r.res, y: (p.y - r.oy) / r.res, k: CORNER_TOL / Math.sin(ang / 2) });
+    }
+  }
+  return out;
+}
+
+/** Verlängert ein Stück geradeaus bis kurz vor den Rand – gleiche Regeln wie beim Lauf. */
+function prolong(pts: P[], dist: Float32Array, gw: number, gh: number) {
+  const n = pts.length;
+  if (n < 4) return;
+  const a = pts[Math.max(0, n - 1 - EXT_WIN)], b = pts[n - 1];
+  let dx = b.x - a.x, dy = b.y - a.y;
+  const l = Math.hypot(dx, dy);
+  if (l < 1e-6) return;
+  dx /= l; dy /= l;
+  const step = STEP / 2;
+  const maxLen = Math.max(2, sampleD(dist, gw, gh, b.x, b.y) * 1.3 + 1.5);
+  let px = b.x, py = b.y, len = 0;
+  while (len < maxLen) {
+    const nx = px + dx * step, ny = py + dy * step;
+    if (sampleD(dist, gw, gh, nx, ny) < 1) break;                    // Rand erreicht
+    const off = offCenter(dist, gw, gh, { x: nx, y: ny }, dx, dy);
+    if (off === null || off > OFF_CENTER) break;                      // nicht mehr auf der Mitte
+    px = nx; py = ny; len += step;
+    pts.push({ x: px, y: py });
+  }
+}
+
+/**
+ * Schneidet die Enden ab, die in eine Ecke laufen. Die mediale Achse hat an
+ * jeder Ecke einen Ast, der auf der Winkelhalbierenden in die Ecke zeigt: beim
+ * Fräsen ein Häkchen, das Material wegnimmt, wo keins weg soll. Erkennung:
+ * auf so einem Ast ist die nächstgelegene Ecke nur etwa 1,4·d entfernt (bei
+ * einer 90°-Ecke ist der Randabstand d = 0,707·Abstand zur Ecke). Auf der Mitte
+ * eines Strichs ist die nächste Ecke um ein Vielfaches von d entfernt, und an
+ * einer Spitze ist sie es erst recht – Spitzen bleiben deshalb stehen.
+ * Die Kürzung läuft von den Enden her nach innen und stoppt, sobald der Punkt
+ * wieder „auf der Mitte“ liegt; Reststücke, die nur aus einem Häkchen
+ * bestanden, fallen ganz weg.
+ */
+function pruneHooks(paths: P[][], verts: Vert[], dist: Float32Array, gw: number, gh: number): P[][] {
+  if (!verts.length) return paths;
+  const atCorner = (p: P): boolean => {
+    const d = sampleD(dist, gw, gh, p.x, p.y);
+    if (!(d > 0.25)) return true;
+    for (const v of verts) {
+      const gx = v.x - p.x, gy = v.y - p.y;
+      if (gx * gx + gy * gy < (v.k * d) * (v.k * d)) return true;
+    }
+    return false;
+  };
+  const out: P[][] = [];
+  for (const pts of paths) {
+    let a = 0, b = pts.length - 1;
+    while (a < b && atCorner(pts[a])) a++;
+    while (b > a && atCorner(pts[b])) b--;
+    if (b - a < 2) continue;
+    const s = pts.slice(a, b + 1);
+    // Gekappte Enden wieder geradeaus bis an den Rand verlängern: der Strich
+    // soll am Ende ankommen – nur eben ohne Häkchen in die Ecke.
+    if (a > 0) { s.reverse(); prolong(s, dist, gw, gh); s.reverse(); }
+    if (b < pts.length - 1) prolong(s, dist, gw, gh);
+    let len = 0;
+    for (let i = 1; i < s.length; i++) len += Math.hypot(s[i].x - s[i - 1].x, s[i].y - s[i - 1].y);
+    const dMid = sampleD(dist, gw, gh, s[Math.floor(s.length / 2)].x, s[Math.floor(s.length / 2)].y);
+    if (len < Math.min(1.5 * dMid, Math.max(3, dMid))) continue;      // nur ein Häkchen
+    out.push(s);
+  }
+  return out;
+}
+
+/**
+ * Wenige Züge eines 3-Punkt-Glätters: dämpft das Zittern der Gratrichtung.
+ * Ecken bleiben dabei Ecken – die Stärke der Glättung wird zurückgenommen,
+ * wo sich die Richtung vor und hinter einem Punkt stark ändert (Knick an
+ * einer Gabelung oder Kante). Sonst wird aus einer Ecke ein Bogen.
+ */
 function smooth(pts: P[], iter: number): P[] {
   let cur = pts;
   for (let k = 0; k < iter; k++) {
     if (cur.length < 3) return cur;
     const next: P[] = [cur[0]];
     for (let i = 1; i < cur.length - 1; i++) {
+      let w = 0.25;
+      const a = cur[Math.max(0, i - 4)], b = cur[Math.min(cur.length - 1, i + 4)];
+      const ux = cur[i].x - a.x, uy = cur[i].y - a.y;
+      const vx = b.x - cur[i].x, vy = b.y - cur[i].y;
+      const lu = Math.hypot(ux, uy), lv = Math.hypot(vx, vy);
+      if (lu > 1e-9 && lv > 1e-9) {
+        const c = (ux * vx + uy * vy) / (lu * lv);
+        const turn = Math.acos(Math.max(-1, Math.min(1, c)));        // Knick im Bogenmaß
+        w = 0.25 * Math.max(0, Math.min(1, (SMOOTH_MAX - turn) / SMOOTH_FADE));
+      }
       next.push({
-        x: 0.25 * cur[i - 1].x + 0.5 * cur[i].x + 0.25 * cur[i + 1].x,
-        y: 0.25 * cur[i - 1].y + 0.5 * cur[i].y + 0.25 * cur[i + 1].y,
+        x: w * cur[i - 1].x + (1 - 2 * w) * cur[i].x + w * cur[i + 1].x,
+        y: w * cur[i - 1].y + (1 - 2 * w) * cur[i].y + w * cur[i + 1].y,
       });
     }
     next.push(cur[cur.length - 1]);
