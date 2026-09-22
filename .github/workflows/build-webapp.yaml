@@ -1,11 +1,10 @@
-name: Build React WebApp
+name: Build WebApp
 
 on:
   workflow_dispatch:
   push:
     branches:
       - main
-      - master
 
 jobs:
   build:
@@ -27,14 +26,9 @@ jobs:
       - name: Build Vite app
         run: npm run build
 
-      - name: Create ZIP
-        run: |
-          cd dist
-          zip -r ../webapp-dist.zip .
-
-      - name: Upload ZIP artifact
+      - name: Upload dist artifact
         uses: actions/upload-artifact@v4
         with:
           name: webapp-dist
-          path: webapp-dist.zip
+          path: dist
           retention-days: 30
