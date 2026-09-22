@@ -66,3 +66,32 @@ Wähler im Header („Modus“ links neben Undo/Redo). Die Wahl wird im Browser 
 - Die Modi stecken in `MODE_STEPS` (Schritte) und `visibleIn(mode, min)` (Felder). Neue Schritte gehören in `STEPS` **und** in die Liste jedes Modus.
 - Gemerkt wird im Browser: `gravura:mode` (Modus) und `gravura:settings` (alle Einstellungen). Beim Laden fehlende Felder fallen auf die Werkseinstellung zurück – ein altes oder halbes Schema kann die App nicht mehr aus dem Tritt bringen. Der Knopf „Einstellungen zurücksetzen“ im Header löscht beides (und ist rückgängig machbar).
 - Der Umschalter ist ein `Segmented` wie im Rest der App, Breite nach Inhalt (`minmax(max-content, 1fr)`) – Beschriftungen werden nie abgeschnitten. Feste Breiten am Umschalter sind tabu.
+
+## Mittellinie & Vorschau
+
+- Befund: Bei schrägen und dünnen Strichen war die Mittellinie wackelig und zerstückelt – ein 20 mm langer, um 30° gedrehter Strich zerfiel in **80 Einzelstücke** mit 0,13 mm Abweichung, ein 45°-Strich verschwand ganz. Ursache: das Raster-Skelett (Zhang-Suen) ist bei Diagonalen eine Treppe mit seitlichen Zacken, und der Ablauf startete an jedem Grad-1-Pixel.
+- Maßnahme: **Gratverfolgung auf der Distanztransformation** statt Skelett-Ablauf (`src/lib/centerline.ts`):
+
+  | Schritt | Was passiert |
+  | --- | --- |
+  | Gruppieren | Konturen mit berührender Bounding-Box kommen gemeinsam in ein Raster – Auflösung bleibt auch bei vielen kleinen Zeichen hoch |
+  | Rastern | Even-Odd-Scanline, Auflösung aus Toleranz **und** geschätzter Strichbreite (2·Fläche/Umfang): mindestens ~8 Pixel über die Breite |
+  | EDT | exakte euklidische Distanztransformation (Felzenszwalb, O(n)) – Abstand jedes Pixels zum Rand, bilinear auswertbar |
+  | Startpunkte | lokale Maxima der 8er-Nachbarschaft, zusätzlich Krümmung quer zum Grat (Hesse-Matrix) – nur so wird aus der Rastertreppe kein zweiter Grat |
+  | Lauf | von dort beidseitig in 0,7-Pixel-Schritten; die Gratrichtung ist der Eigenvektor zum *größeren* Eigenwert der Hesse-Matrix, mit Trägheit (65 %) – an Gabelungen läuft der Strich geradeaus weiter |
+  | Mitte | jeder Punkt wird über den lokalen Querschnitt (beide Ränder aus der EDT, subpixel-genau) auf die Mitte gesetzt – das nimmt die Rastertreppe heraus |
+  | Verbinden | Pfade, die an einer Gabelung auseinandergefallen sind, werden wieder zusammengesetzt – aber nur, wenn der Verbindungsschnitt im Bauteil liegt |
+
+- Ergebnis (20 mm langer Strich, 0,6 mm breit, Toleranz 0,03 mm):
+
+  | Fall | alt | neu |
+  | --- | --- | --- |
+  | waagerecht | 1 Stück, 0,0150 mm | 1 Stück, 0,0447 mm |
+  | 30° gedreht | **80 Stück**, 0,1335 mm | **1 Stück**, 0,0113 mm |
+  | 45° gedreht | **0 Stück** (nichts übrig) | 1 Stück, 0,0000 mm |
+  | Kreisbogen r=10 | 8 Stück, 0,0886 mm | 1 Stück, 0,0129 mm |
+
+  Ein „H“ (echte Außenkontur) ergibt 3 Züge – zwei Senkrechte und der Querbalken, jeder in einem Stück.
+- Befund: Der Kopf hob mitten im Strich ab, weil jedes Stück neu angefahren wurde. Maßnahme: erst die Geometrie heilen (ein Strich = ein Pfad), zusätzlich verbindet der Werkzeugweg zwei Gravurstücke unter 0,3 mm Abstand **ohne** Abheben (`LINK_GAP` in `src/lib/toolpath.ts`).
+- Befund: Die Mittellinie war erst nach „Berechnen“ sichtbar. Maßnahme: **Vorschau direkt bei der Wahl** – `centerlinePaths()` läuft im Schritt „Bearbeitung“ mit und zeichnet die Linien zyan (`#22d3ee`) in die Bühne; die Legende bekommt einen Eintrag, der berechnete Weg verdeckt die Vorschau. Gerechnet wird zurückgestellt (`useDeferredValue`), damit Regler beim Ziehen flüssig bleiben.
+- Vorschau und Werkzeugweg nutzen dieselbe Funktion (`centerlinePaths`), getrennt je Schnittebene – was zyan erscheint, wird auch gefräst. Mehrere Ebenen werden nicht mehr zu einem Raster verschmolzen.

@@ -186,7 +186,13 @@ export function MachiningStep({ s, set, om, mode }: { s: Settings; set: (p: Part
       <Group color={OP_COLOR.engrave} title="Gravur" sub="Schrift, Linien, Skalen">
         <Segmented value={s.engraveMode} onChange={(v) => set({ engraveMode: v })} options={[
           { value: 'contour', label: 'Umriss abfahren', hint: 'Jede Linie wird genau abgefahren' },
-          { value: 'centerline', label: 'Mittellinie', hint: 'Schrift als einzelner Strich in der Mitte' }]} />
+          { value: 'centerline', label: 'Mittellinie', hint: 'Schrift als ein Strich in der Mitte' }]} />
+        {s.engraveMode === 'centerline' && (
+          <p className="-mt-0.5 text-[11.5px] leading-relaxed text-fg3">
+            Die Mittellinien erscheinen sofort <span className="text-[#22d3ee]">zyan</span> in der Ansicht – ein Strich wird dabei
+            in einem Zug gefräst, ohne dass der Kopf zwischendurch abhebt.
+          </p>
+        )}
         <Field label="Tiefe" value={s.engraveDepth} min={0.01} step={0.05} unit="mm" onChange={(v) => set({ engraveDepth: v })} />
       </Group>
       <Group color={OP_COLOR.pocket} title="Tasche" sub="Flächen bis zu einer Tiefe ausräumen">

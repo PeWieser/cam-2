@@ -22,7 +22,7 @@ Legende: ✅ funktioniert · 🔧 in dieser Runde ergänzt · ⚠️ mit Einschr
 | B1 | Beschriftung als Vertiefung im CAD modelliert | ✅ | Schnitt 0,1 mm unter Oberkante zeigt Plattenrand + Schrift; Rand überspringen |
 | B2 | Beschriftung erhaben (auf der Platte) | ✅ | Schnitt knapp unter der Schriftoberkante zeigt nur die Schrift |
 | B3 | Erhabene Schrift **und** Bohrungen in derselben Platte | 🔧 | **Mehrere Schnittebenen** (Schrift oben, Bohrungen tiefer) |
-| B4 | Dünne Schrift als einfacher Strich (Mittellinie) | ✅ | Strategie Mittellinie (Skelettierung) |
+| B4 | Dünne Schrift als einfacher Strich (Mittellinie) | ✅ | Strategie Mittellinie (Gratverfolgung auf der Distanztransformation, siehe H) |
 | B5 | Schriftlinien als Doppelkontur (Umriss) | ✅ | Strategie Umriss |
 | B6 | Bohrungen für Potis/Schalter/LEDs durchfräsen | 🔧 | **Bearbeitung „Durchbruch“ je Kontur**, Tiefe = Material + Übermaß |
 | B7 | Plattenumriss durchfräsen | 🔧 | Durchbruch mit **Haltestegen**, wird zuletzt gefräst |
@@ -98,3 +98,28 @@ Legende: ✅ funktioniert · 🔧 in dieser Runde ergänzt · ⚠️ mit Einschr
 | G6 | Bühne folgt Größenänderungen | ✅ | ResizeObserver |
 | G7 | Drehen/Zoomen mit dem Finger, kein Pull-to-Refresh | 🔧 | touch-action, overscroll-behavior |
 | G8 | Home-Leiste (iOS) verdeckt „Zurück/Weiter“ nicht | 🔧 | env(safe-area-inset-bottom) |
+
+## H · Mittellinie
+
+| # | Szenario | Status | Anmerkung |
+|---|---|---|---|
+| H1 | Gerader Strich, 0,6 mm breit | ✅ | 1 Zug, Abweichung < 0,05 mm, endet kurz vor der Kappe (halbe Strichbreite) |
+| H2 | Strich 30° gedreht | ✅ | 1 Zug (vorher 80), Abweichung 0,011 mm |
+| H3 | Strich 45° gedreht | ✅ | 1 Zug (vorher gar nichts mehr übrig) |
+| H4 | Strich 5° gedreht (fast waagerecht) | ✅ | 1 Zug, Abweichung 0,014 mm |
+| H5 | Senkrechter Strich | ✅ | 1 Zug |
+| H6 | Kreisbogen (r = 10 mm, 90°) | ✅ | 1 Zug, Abweichung 0,013 mm |
+| H7 | „H“ als echte Außenkontur | ✅ | 3 Züge: zwei Senkrechte, ein Querbalken; 3 Abhebungen statt einer je Stückchen |
+| H8 | „L“ (Winkel) | ✅ | 1 Zug bei Toleranz 0,02 mm, 2 bei 0,05 mm (Lücke 0,14 mm) |
+| H9 | „O“ als Ring (Außen- + Innenkontur) | ✅ | 1 geschlossener Zug, Länge 20,7 mm (ideal 20,73) |
+| H10 | Drei sehr dünne Striche (0,15 mm) | ✅ | 3 Züge, Länge 44,7 mm (ideal 45) |
+| H11 | Sehr feiner Strich (0,2 mm) bei Toleranz 0,2 mm | ✅ | Auflösung wird selbstständig verfeinert (≈ 8 Pixel über die Breite) |
+| H12 | Breiter Balken (4 mm) | 🔧 | 1 Zug, endet ~1,9 mm vor der Kappe (mediale Achse endet dort) |
+| H13 | Gefüllte Fläche 100 × 60 mm | ✅ | 1 Zug mittig, < 100 ms |
+| H14 | 120 Zeichen (480 Striche) | ✅ | ~200 ms, ein Zug je Strich |
+| H15 | Mehrere Schnittebenen, Formen übereinander | ✅ | je Ebene eigenes Raster, keine Vermischung |
+| H16 | Vorschau: „Mittellinie“ wählen | ✅ | Linien erscheinen sofort zyan in der Bühne, knapp über der Ebene |
+| H17 | Vorschau bei geändertem Toleranz-Regler | ✅ | rechnet zurückgestellt nach, Bedienung bleibt flüssig |
+| H18 | Vorschau nach „Berechnen“ | ✅ | berechneter Weg verdeckt die Vorschau, Legendeneintrag wechselt |
+| H19 | Konturen auf „Aus“ oder „Tasche“ gesetzt | ✅ | erscheinen nicht in der Vorschau |
+| H20 | Zwei Gravurstücke mit < 0,3 mm Abstand | ✅ | werden ohne Abheben verbunden (`LINK_GAP`) |

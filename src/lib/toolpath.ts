@@ -64,6 +64,23 @@ export function originPoint(om: OrientedMesh, originXY: OriginXY): Vec2 {
 
 export const opOf = (s: Settings, id: number): Op => s.ops[String(id)] ?? 'engrave';
 
+/**
+ * Mittellinien der Gravurkonturen, getrennt je Schnittebene. Vorschau in der
+ * Ansicht und Werkzeugweg nutten dieselbe Quelle – was angezeigt wird, wird
+ * auch gefräst.
+ */
+export function centerlinePaths(contours: Contour[], tolerance: number): { z: number; pts: Vec2[] }[] {
+  const byZ = new Map<number, Contour[]>();
+  for (const c of contours) {
+    if (!c.closed) continue;
+    const a = byZ.get(c.z);
+    if (a) a.push(c); else byZ.set(c.z, [c]);
+  }
+  const out: { z: number; pts: Vec2[] }[] = [];
+  for (const [z, cs] of byZ) for (const pts of computeCenterlines(cs, tolerance)) out.push({ z, pts });
+  return out;
+}
+
 export function activeContours(contours: Contour[], s: Settings) {
   return contours.filter((c) => opOf(s, c.id) !== 'off' && c.length >= s.minLength);
 }
@@ -79,6 +96,9 @@ export function settingsKey(s: Settings): string {
 
 type Path = { pts: Vec2[]; closed: boolean; op: Op; depth: number; tabs: boolean; order: number };
 
+/** Ab dieser Lücke (mm) zwischen zwei Gravurstücken wird der Kopf nicht mehr angehoben */
+const LINK_GAP = 0.3;
+
 export function computeToolpath(om: OrientedMesh, contours: Contour[], s: Settings): Toolpath | null {
   const warnings: string[] = [];
   const active = activeContours(contours, s);
@@ -92,9 +112,8 @@ export function computeToolpath(om: OrientedMesh, contours: Contour[], s: Settin
   // --- Gravur ---
   const eng = byOp('engrave');
   if (s.engraveMode === 'centerline') {
-    const closed = eng.filter((c) => c.closed);
-    for (const l of computeCenterlines(closed, s.tolerance)) {
-      if (pathLength(l, false) >= s.minLength) paths.push({ pts: l, closed: false, op: 'engrave', depth: s.engraveDepth, tabs: false, order: 0 });
+    for (const l of centerlinePaths(eng, s.tolerance)) {
+      if (pathLength(l.pts, false) >= s.minLength) paths.push({ pts: l.pts, closed: false, op: 'engrave', depth: s.engraveDepth, tabs: false, order: 0 });
     }
     for (const c of eng.filter((c) => !c.closed)) paths.push({ pts: c.pts, closed: false, op: 'engrave', depth: s.engraveDepth, tabs: false, order: 0 });
   } else {
@@ -159,12 +178,21 @@ export function computeToolpath(om: OrientedMesh, contours: Contour[], s: Settin
 
   const counts: Record<Op, number> = { engrave: 0, pocket: 0, cut: 0, off: 0 };
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-  for (const p of ordered) {
+  for (let pi = 0; pi < ordered.length; pi++) {
+    const p = ordered[pi];
     counts[p.op]++;
     const n = Math.max(1, Math.ceil(p.depth / Math.max(s.stepDown, 0.01) - 1e-9));
     const first = p.pts[0];
-    push(cur.x, cur.y, zSafe, true, p.op);
-    push(first.x, first.y, zSafe, true, p.op);
+    // Zwischen zwei Gravurstücken, die fast aneinanderstoßen, nicht abheben
+    const prev = pi > 0 ? ordered[pi - 1] : null;
+    const link =
+      prev !== null && prev.op === p.op && prev.op === 'engrave' &&
+      Math.abs(prev.depth - p.depth) < 1e-9 && !prev.closed && !p.closed &&
+      Math.hypot(prev.pts[prev.pts.length - 1].x - first.x, prev.pts[prev.pts.length - 1].y - first.y) <= LINK_GAP;
+    if (!link) {
+      push(cur.x, cur.y, zSafe, true, p.op);
+      push(first.x, first.y, zSafe, true, p.op);
+    }
     for (let i = 1; i <= n; i++) {
       const z = zTop - Math.min(p.depth, i * s.stepDown);
       if (p.closed) {

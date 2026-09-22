@@ -22,11 +22,15 @@ export type StageProps = {
   progress: number;                // 0..1 Position des Werkzeugs auf dem Pfad
   view: '3d' | 'top';
   dimmed?: boolean;
+  centerlines?: CenterlinePreview[]; // Vorschau der Mittellinien (zyan)
 };
+
+/** Eine Mittellinie der Vorschau, mit der Höhe der Schnittebene */
+export type CenterlinePreview = { z: number; pts: Vec2[] };
 
 const C = {
   bg: 0x0e0e10, grid: 0x232326, gridMinor: 0x18181b, model: 0x8e8e96,
-  contourHover: 0xffffff,
+  contourHover: 0xffffff, centerline: 0x22d3ee,
   rapid: 0xf87171, origin: [0xf87171, 0x4ade80, 0x60a5fa], tool: 0xd4d4d8, plane: 0x3b82f6,
 };
 const OPC: Record<Op, number> = { engrave: 0x3b82f6, pocket: 0xa78bfa, cut: 0xfbbf24, off: 0x4a4a52 };
@@ -35,7 +39,8 @@ export default function Stage(p: StageProps) {
   const ref = useRef<HTMLDivElement>(null);
   const st = useRef<{
     renderer: THREE.WebGLRenderer; scene: THREE.Scene; camera: THREE.PerspectiveCamera; controls: OrbitControls;
-    model: THREE.Group; plane: THREE.Mesh; contours: THREE.Group; origin: THREE.Group; tool: THREE.Group; path: THREE.Group;
+    model: THREE.Group; plane: THREE.Mesh; contours: THREE.Group; centerlines: THREE.Group;
+    origin: THREE.Group; tool: THREE.Group; path: THREE.Group;
     ray: THREE.Raycaster; size: number; hover: number | null; propsRef: StageProps; grid: THREE.GridHelper;
   } | null>(null);
   const propsRef = useRef(p);
@@ -73,12 +78,13 @@ export default function Stage(p: StageProps) {
     const plane = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ color: C.plane, transparent: true, opacity: 0.16, side: THREE.DoubleSide, depthWrite: false }));
     plane.visible = false; scene.add(plane);
     const contours = new THREE.Group(); scene.add(contours);
+    const centerlines = new THREE.Group(); scene.add(centerlines);
     const origin = new THREE.Group(); scene.add(origin);
     const tool = new THREE.Group(); scene.add(tool);
     const path = new THREE.Group(); scene.add(path);
 
     const ray = new THREE.Raycaster();
-    const s = { renderer, scene, camera, controls, model, plane, contours, origin, tool, path, ray, size: 50, hover: null as number | null, propsRef: p, grid };
+    const s = { renderer, scene, camera, controls, model, plane, contours, centerlines, origin, tool, path, ray, size: 50, hover: null as number | null, propsRef: p, grid };
     st.current = s;
 
     const resize = () => {
@@ -191,6 +197,19 @@ export default function Stage(p: StageProps) {
       s.contours.add(line);
     }
   }, [p.contours, p.opOf]);
+
+  // --- Mittellinien-Vorschau ------------------------------------------------------
+  useEffect(() => {
+    const s = st.current; if (!s) return;
+    disposeGroup(s.centerlines);
+    for (const c of p.centerlines ?? []) {
+      if (c.pts.length < 2) continue;
+      const z = c.z + s.size * 0.003;
+      const pts = c.pts.map((q) => new THREE.Vector3(q.x, q.y, z));
+      const geo = new THREE.BufferGeometry().setFromPoints(pts);
+      s.centerlines.add(new THREE.Line(geo, new THREE.LineBasicMaterial({ color: C.centerline, transparent: true, opacity: 0.95 })));
+    }
+  }, [p.centerlines]);
 
   // --- Nullpunkt ------------------------------------------------------------------
   useEffect(() => {

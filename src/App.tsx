@@ -1,4 +1,4 @@
-import { Component, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { Component, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Check, ChevronLeft, ChevronRight, Redo2, RotateCcw, Undo2, Upload } from 'lucide-react';
 import favicon from './assets/favicon.svg';
 import Stage from './components/Stage';
@@ -7,7 +7,7 @@ import { ComputeStep, ExportStep, MachiningStep, ModelStep, OrientStep, OriginSt
 import { Segmented } from './components/ui';
 import { useSettings, useStored } from './store';
 import { loadModelFile } from './lib/loaders';
-import { activeContours, computeToolpath, levelZ, opOf, orientMesh, originPoint, settingsKey, sliceLevels } from './lib/toolpath';
+import { activeContours, centerlinePaths, computeToolpath, levelZ, opOf, orientMesh, originPoint, settingsKey, sliceLevels } from './lib/toolpath';
 import { generateGcode } from './lib/gcode';
 import { MODE_HINT, MODE_LABEL, MODE_STEPS, MODES, OP_LABEL, STEPS, type MeshData, type Mode, type Op, type StepId, type Toolpath } from './types';
 import { cn } from './utils/cn';
@@ -39,6 +39,16 @@ function Workbench() {
   const origin = useMemo(() => (om ? originPoint(om, s.originXY) : null), [om, s.originXY]);
   const opLookup = useCallback((id: number) => opOf(s, id), [s.ops]); // eslint-disable-line react-hooks/exhaustive-deps
   const activeCount = activeContours(contours, s).length;
+  // Vorschau der Mittellinien: erscheint sobald „Mittellinie“ gewählt ist.
+  // Zurückgestellt, damit die Bedienung beim Ziehen an Reglern flüssig bleibt.
+  const clContours = useDeferredValue(contours);
+  const clPreview = useMemo(
+    () => (s.engraveMode === 'centerline'
+      ? centerlinePaths(activeContours(clContours, s).filter((c) => opOf(s, c.id) === 'engrave'), s.tolerance)
+      : []),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [clContours, s.engraveMode, s.tolerance, s.ops, s.minLength],
+  );
   const stale = !!tp && tp.settingsKey !== settingsKey(s);
   const gcode = useMemo(() => (tp && mesh && !stale ? generateGcode(tp, s, mesh.name) : ''), [tp, s, mesh, stale]);
   const sliceZ = om && s.sliceOffsets[level] !== undefined ? levelZ(om, s.sliceOffsets[level]) : null;
@@ -113,6 +123,7 @@ function Workbench() {
   const showOrigin = !['model', 'orient', 'slice'].includes(step);
   const showTool = ['tool', 'compute', 'program', 'export'].includes(step);
   const showPath = ['compute', 'program', 'export'].includes(step) && !!tp && !stale;
+  const showCenterlines = clPreview.length > 0 && !showPath;   // Vorschau weicht dem berechneten Weg
   const showCode = step === 'export' && exportView === 'code' && !!gcode;
   const zTopWorld = om ? om.max[2] : null;
   const zProgramTop = s.originZ === 'top' ? 0 : s.material;
@@ -208,6 +219,7 @@ function Workbench() {
               tool={showTool ? s.tool : null}
               toolpath={showPath ? tp : null} originForPath={origin} zTopWorld={zTopWorld} zProgramTop={zProgramTop}
               progress={progress} view={view} dimmed={showPath}
+              centerlines={showCenterlines ? clPreview : undefined}
             />
           </div>
           {showCode && <div className="fade-in h-full"><CodeView code={gcode} /></div>}
@@ -224,6 +236,7 @@ function Workbench() {
           {mesh && !showCode && (
             <div className="pointer-events-none absolute bottom-3 left-3 flex max-w-[calc(100%-1.5rem)] flex-wrap gap-x-3 gap-y-1 text-[11px] text-fg3">
               {(['engrave', 'pocket', 'cut', 'off'] as Op[]).map((o) => <Legend key={o} color={OP_COLOR[o]} label={OP_LABEL[o]} />)}
+              {showCenterlines && <Legend color="bg-[#22d3ee]" label="Mittellinie" />}
               {showPath && <Legend color="bg-danger" label="Eilgang" />}
               <span className="hidden sm:inline">Ziehen: drehen · Rad: zoomen · Rechts: verschieben</span>
             </div>
