@@ -1,40 +1,45 @@
-name: Build React WebApp
+name: Build WebApp
 
 on:
   workflow_dispatch:
   push:
     branches:
       - main
-      - master
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
 
-      - name: Install dependencies
-        run: npm ci
+      - run: npm ci
 
-      - name: Build Vite app
-        run: npm run build
+      - run: npm run build
 
-      - name: Create ZIP
+      - name: Install mklittlefs
         run: |
-          cd dist
-          zip -r ../webapp-dist.zip .
+          wget https://github.com/earlephilhower/mklittlefs/releases/latest/download/mklittlefs-linux-x86_64.tar.gz
+          tar -xzf mklittlefs-linux-x86_64.tar.gz
 
-      - name: Upload ZIP artifact
-        uses: actions/upload-artifact@v4
+      - name: Create LittleFS image
+        run: |
+          ./mklittlefs \
+            -c dist \
+            -s 1572864 \
+            littlefs.bin
+
+      - uses: actions/upload-artifact@v4
         with:
-          name: webapp-dist
-          path: webapp-dist.zip
-          retention-days: 30
+          name: littlefs
+          path: littlefs.bin
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist
