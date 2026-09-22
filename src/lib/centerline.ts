@@ -48,7 +48,12 @@ export type CenterlinePiece = {
   centerline: boolean;
 };
 
-export function computeCenterlines(contours: Contour[], tolerance: number): CenterlinePiece[] {
+/**
+ * @param maxWidth Größte Breite (mm), die noch als Strich gilt. Ist eine Form
+ *   breiter, wird sie nicht entlang ihrer Mitte, sondern entlang ihres Umrisses
+ *   graviert – sie kommt als `centerline: false` zurück.
+ */
+export function computeCenterlines(contours: Contour[], tolerance: number, maxWidth = Infinity): CenterlinePiece[] {
   const cs = contours.filter((c) => c.closed && c.pts.length >= 3);
   if (!cs.length) return [];
 
@@ -64,7 +69,7 @@ export function computeCenterlines(contours: Contour[], tolerance: number): Cent
     }
     const asContour: CenterlinePiece = { pts: cs[i].pts, centerline: false };
     if (budget <= 0) { out.push(asContour); continue; }
-    if (!isStrokeLike(region, box[i])) { out.push(asContour); continue; }
+    if (!isStrokeLike(region, box[i], maxWidth)) { out.push(asContour); continue; }
 
     const r = rasterize(region, fineRes(region, cs[i].depth, tolerance, box[i]), box[i]);
     if (!r || r.area === 0) { out.push(asContour); continue; }
@@ -219,11 +224,15 @@ function fineRes(cs: Contour[], root: number, tolerance: number, b: Box): number
 }
 
 /**
- * Strich oder Fläche? Ein Strich ist lang und schmal: sein größter Innenkreis
- * ist klein gegen die Ausdehnung der Form. Eine Platte, ein Punkt oder ein
- * gefülltes Rechteck sind Flächen – für sie ist eine Mittellinie Unsinn.
+ * Strich oder Fläche? Zwei Bedingungen, beide müssen erfüllt sein:
+ *   · Der größte Innenkreis ist klein gegen die Ausdehnung der Form (ein Strich
+ *     ist lang und schmal). Eine Platte, ein Punkt oder ein gefülltes Rechteck
+ *     fallen dadurch durch – für sie ist eine Mittellinie Unsinn.
+ *   · Die breiteste Stelle ist nicht breiter als `maxWidth`. Das ist der
+ *     Schwellwert, den der Benutzer einstellt: ab hier ist eine Form eine
+ *     Fläche und wird entlang ihres Umrisses graviert.
  */
-function isStrokeLike(cs: Contour[], b: Box): boolean {
+function isStrokeLike(cs: Contour[], b: Box, maxWidth: number): boolean {
   const diag = Math.hypot(b.maxX - b.minX, b.maxY - b.minY);
   if (!(diag > 0)) return false;
   const res = diag / PROBE_SIDE;
@@ -232,7 +241,8 @@ function isStrokeLike(cs: Contour[], b: Box): boolean {
   const d = edt2d(r.g, r.gw, r.gh);
   let mx = 0;
   for (let i = 0; i < d.length; i++) if (d[i] > mx) mx = d[i];
-  return 2 * mx * r.res <= AREA_RATIO * diag;
+  const wide = 2 * mx * r.res;                     // Durchmesser des größten Innenkreises
+  return wide <= maxWidth && wide <= AREA_RATIO * diag;
 }
 
 // ---------------------------------------------------------------------------
@@ -288,14 +298,19 @@ type P = { x: number; y: number };   // kontinuierliche Pixelkoordinaten
 const STEP = 0.7;      // Schrittweite in Pixeln
 const DMIN = 0.6;      // minimaler Randabstand in Pixeln (darunter ist Schluss)
 const LOOP_EPS = 1.4;  // Abstand, ab dem ein Pfad als geschlossen gilt
-const DELTA = 1.2;     // px: soviel darf der Randabstand unter das lokale Maß fallen
+const TAPER = 0.35;    // Anteil: um soviel darf der Randabstand unter das lokale Maß fallen
 const WIN = 24;        // Schritte im Fenster für das lokale Maß
 const PERSIST = 3;     // so viele Schritte muss der Abstand gefallen sein
 const SEED_MIN = 0.9;  // px: minimaler Randabstand für einen Startpunkt
+const SEED_RIDGE = -0.4; // Krümmung quer zum Grat: ab hier ist ein Punkt Startpunkt
 const INERTIA = 0.65;  // Anteil der bisherigen Richtung (Trägheit an Gabelungen)
 const SLIVER = 1.1;    // px: Stücke, die im Mittel näher als das am Rand liegen, sind Reste
+const STUB = 0.5;      // Stücke, die kürzer als STUB·2·Breite sind, sind Reste einer Gabelung
 const EXT_WIN = 10;    // Punkte, über die die Richtung für die Verlängerung gemittelt wird
-const RIDGE_MIN = -0.15; // Krümmung quer zum Grat: ab hier gilt die Richtung als Grat
+const RIDGE_MIN = -0.35; // Krümmung quer zum Grat: ab hier gilt die Richtung als Grat
+const PEAK_MAX = -0.6;   // Krümmung entlang des Grates: darunter ist es ein Gipfel (Gabelung)
+const PLATEAU = 10;    // Schritte ohne Grat, nach denen der Lauf abgebrochen wird
+const OFF_CENTER = 0.35; // erlaubte Schieflage des Querschnitts beim Verlängern
 
 /** bilinear interpolierter Randabstand; Pixel (ix,iy) hat die Mitte (ix+0.5, iy+0.5) */
 function sampleD(dist: Float32Array, gw: number, gh: number, x: number, y: number): number {
@@ -314,7 +329,7 @@ function sampleD(dist: Float32Array, gw: number, gh: number, x: number, y: numbe
  * (2. Ableitung ≈ 0), quer dazu hat er einen Knick (2. Ableitung ≈ −2).
  * Die Gratrichtung ist also der Eigenvektor zum *größeren* Eigenwert.
  */
-function ridgeDir(dist: Float32Array, gw: number, gh: number, x: number, y: number): { rx: number; ry: number; lamA: number } | null {
+function ridgeDir(dist: Float32Array, gw: number, gh: number, x: number, y: number): { rx: number; ry: number; lamA: number; lamB: number } | null {
   const d0 = sampleD(dist, gw, gh, x, y);
   const h = 1;
   const dxp = sampleD(dist, gw, gh, x + h, y), dxm = sampleD(dist, gw, gh, x - h, y);
@@ -333,7 +348,8 @@ function ridgeDir(dist: Float32Array, gw: number, gh: number, x: number, y: numb
   const l = Math.hypot(rx, ry);
   if (l < 1e-7) return null;
   // tr - det: Krümmung quer zum Grat (am Grat ≈ -2, auf der Flanke ≈ 0)
-  return { rx: rx / l, ry: ry / l, lamA: tr - det };
+  // tr + det: Krümmung entlang des Grates (am Grat ≈ 0, an einer Gabelung ≈ -2)
+  return { rx: rx / l, ry: ry / l, lamA: tr - det, lamB: lam };
 }
 
 /**
@@ -342,9 +358,14 @@ function ridgeDir(dist: Float32Array, gw: number, gh: number, x: number, y: numb
  */
 function findEdge(dist: Float32Array, gw: number, gh: number, px: number, py: number, nx: number, ny: number, sgn: number): number | null {
   const d = sampleD(dist, gw, gh, px, py);
-  const from = Math.max(0, d - 1.2), to = d + 2.0;
-  let sPrev = 0, dPrev = sampleD(dist, gw, gh, px, py);
-  for (let s = from; s <= to; s += 0.5) {
+  // Der Rand sitzt bei ±d – dort fein suchen. Weiter draußen nur grob: an
+  // Spitzen und Gabelungen liegt der Rand auf einer Seite deutlich weiter weg,
+  // sonst findet die Suche ihn nicht, der Lauf driftet von der Mitte ab und
+  // verliert den Grat (die Spitze der „1“ blieb dadurch weg).
+  const from = Math.max(0, d - 1.5), fine = d + 2, to = d + Math.max(8, 3 * d);
+  const coarse = Math.max(1.5, d / 12);
+  let sPrev = 0, dPrev = d;
+  for (let s = from; s <= to; s += s <= fine ? 0.5 : coarse) {
     const ds = sampleD(dist, gw, gh, px + nx * sgn * s, py + ny * sgn * s);
     if (ds <= 0.05) return sgn * s;
     if (ds <= 1) {
@@ -357,17 +378,53 @@ function findEdge(dist: Float32Array, gw: number, gh: number, px: number, py: nu
   return null;                      // Gabelung oder Ecke → keine Korrektur
 }
 
-/** Setzt einen Punkt in die Mitte des Querschnitts senkrecht zur Laufrichtung. */
+/**
+ * Setzt einen Punkt auf die Mitte des Querschnitts – genauer auf das Maximum
+ * des Randabstands quer zur Laufrichtung. Die Mitte *zwischen* den beiden
+ * Rändern ist nur bei einem Strich mit parallelen Flanken die Mitte: an einer
+ * Ecke, in einer Spitze oder an einer Gabelung liegt das Maximum woanders, und
+ * wer dorthin korrigiert, läuft vom Grat weg (die Spitze der „1“ blieb so weg).
+ * Gesucht wird deshalb in einem Fenster von ±halber Breite, erst grob, dann
+ * über eine Parabel durch die drei besten Stützstellen.
+ */
 function toCenter(dist: Float32Array, gw: number, gh: number, p: P, dx: number, dy: number): P | null {
-  const nx = -dy, ny = dx;
   const d = sampleD(dist, gw, gh, p.x, p.y);
   if (d < DMIN) return null;
+  const nx = -dy, ny = dx;
+  const w = Math.max(3, 0.5 * d);
+  const step = Math.max(0.75, w / 12);
+  let bt = 0, bd = d;
+  for (let t = -w; t <= w + 1e-9; t += step) {
+    const v = sampleD(dist, gw, gh, p.x + nx * t, p.y + ny * t);
+    if (v > bd) { bd = v; bt = t; }
+  }
+  if (bd <= d + 1e-6) return null;                    // sitzt schon auf dem Grat
+  // Parabel durch die drei Stützstellen um das Maximum
+  const dm = sampleD(dist, gw, gh, p.x + nx * (bt - step), p.y + ny * (bt - step));
+  const dp = sampleD(dist, gw, gh, p.x + nx * (bt + step), p.y + ny * (bt + step));
+  const den = dm - 2 * bd + dp;
+  let off = bt;
+  if (den < -1e-9) off = bt + (step / 2) * ((dm - dp) / den);
+  if (Math.abs(off) > w || !Number.isFinite(off)) return null;
+  return { x: p.x + nx * off, y: p.y + ny * off };
+}
+
+/**
+ * Wie schief liegt der Querschnitt? 0 = der Punkt sitzt genau in der Mitte,
+ * 1 = er liegt am Rand. Beim Verlängern bis ans Strichende wird darüber
+ * geprüft, ob die Verlängerung noch auf der Mitte läuft: läuft ein Grat aus
+ * (etwa in eine breite Fläche hinein), ist der Querschnitt plötzlich völlig
+ * schief – dann darf nicht weiter verlängert werden, sonst entsteht eine Linie
+ * dort, wo gar kein Strich ist.
+ */
+function offCenter(dist: Float32Array, gw: number, gh: number, p: P, dx: number, dy: number): number | null {
+  const nx = -dy, ny = dx;
   const a = findEdge(dist, gw, gh, p.x, p.y, nx, ny, 1);
   const b = findEdge(dist, gw, gh, p.x, p.y, nx, ny, -1);
-  if (a === null || b === null) return null;          // Gabelung oder Ecke → nicht korrigieren
-  const mid = (a + b) / 2;
-  if (Math.abs(mid) > Math.max(1.5, d)) return null;  // unplausibel
-  return { x: p.x + nx * mid, y: p.y + ny * mid };
+  if (a === null || b === null) return null;
+  const w = a - b;
+  if (w < 1e-6) return null;
+  return Math.abs(a + b) / w;
 }
 
 /**
@@ -399,29 +456,29 @@ function traceRidges(r: Raster, dist: Float32Array): P[][] {
       for (let s = 1; s <= n; s++) mark(x + ux * s, y + uy * s);
     }
   };
+  const NB = [-gw - 1, -gw, -gw + 1, 1, gw + 1, gw, gw - 1, -1];
   const isVisited = (x: number, y: number) => {
     const ix = Math.floor(x), iy = Math.floor(y);
     return ix >= 0 && iy >= 0 && ix < gw && iy < gh ? visited[iy * gw + ix] === 1 : false;
   };
 
-  const NB = [-gw - 1, -gw, -gw + 1, 1, gw + 1, gw, gw - 1, -1];
-  // Startpunkte: höchster Punkt quer zur Gratrichtung
-  const seeds: { p: P; rx: number; ry: number; d: number }[] = [];
+  // Startpunkte: Gratpunkte, zuerst die breitesten Stellen (Mitte eines
+  // Strichs), damit der Lauf nicht an einer Eckenspitze beginnt, von der aus
+  // der Grat schräg in die Ecke läuft.
+  type Seed = { p: P; rx: number; ry: number; d: number };
+  const peaks: Seed[] = [];
   for (let y = 1; y < gh - 1; y++) {
     for (let x = 1; x < gw - 1; x++) {
       const i = y * gw + x;
       const cx = x + 0.5, cy = y + 0.5;
       const d = dist[i];
       if (d < DMIN) continue;
-      // lokales Maximum in der 8er-Nachbarschaft (schnell) – nur so wird aus
-      // der Treppenkante des Rasters kein zweiter, falscher Grat
       if (d < SEED_MIN) continue;
+      const rd = ridgeDir(dist, gw, gh, cx, cy);
+      if (!rd || rd.lamA > SEED_RIDGE) continue;           // kein echter Grat
       let isMax = true;
       for (let k = 0; k < 8; k++) if (dist[i + NB[k]] > d + 1e-6) { isMax = false; break; }
-      if (!isMax) continue;
-      const rd = ridgeDir(dist, gw, gh, cx, cy);
-      if (!rd || rd.lamA > -0.4) continue;                 // kein echter Grat
-      seeds.push({ p: { x: cx, y: cy }, rx: rd.rx, ry: rd.ry, d });
+      if (isMax) peaks.push({ p: { x: cx, y: cy }, rx: rd.rx, ry: rd.ry, d });
     }
   }
 
@@ -451,6 +508,9 @@ function traceRidges(r: Raster, dist: Float32Array): P[][] {
     while (len < maxLen) {
       const nx = px + dx * step, ny = py + dy * step;
       if (sampleD(dist, gw, gh, nx, ny) < 1) break;        // Rand erreicht
+      // nur verlängern, solange die Mitte noch in der Mitte ist
+      const off = offCenter(dist, gw, gh, { x: nx, y: ny }, dx, dy);
+      if (off === null || off > OFF_CENTER) break;
       px = nx; py = ny; len += step;
       pts.push({ x: px, y: py });
     }
@@ -468,22 +528,37 @@ function traceRidges(r: Raster, dist: Float32Array): P[][] {
     let travelled = 0;
     let loop = false;
     let endStop = false;
+    let flat = 0;                      // Schritte ohne Grat hintereinander
     const win = new Float64Array(WIN);      // letzte Randabstände → lokales Maß
     let wi = 0, filled = 0;
     let dRef = 0;                           // größter Randabstand im Fenster
     let below = 0;                          // Schritte unter dem Maß
     for (let step = 0; step < 200000; step++) {
       const rd = ridgeDir(dist, gw, gh, px, py);
-      // Auf einem Plateau (breite Stelle, z. B. Kreuzungsbereich) ist die Grat-
-      // richtung Unsinn – dort geradeaus weiter, bis wieder ein Grat da ist
+      // Zwei Fälle, in denen die Gratrichtung nicht taugt:
+      //  · Gipfel (lamB stark negativ): an einer Gabelung ist der Randabstand
+      //    in *jeder* Richtung ein Maximum, der Eigenvektor zeigt deshalb auf
+      //    einen der abgehenden Äste. Geradeaus weiter – der Ast wird später
+      //    als eigener Pfad abgelaufen.
+      //  · Plateau (lamA ≈ 0): der Lauf ist neben den Grat geraten (Strich-
+      //    ende, auslaufender Grat). Kurz geradeaus weiter, dann abbrechen.
       if (rd && rd.lamA < RIDGE_MIN) {
-        let vx = rd.rx, vy = rd.ry;
-        if (vx * ux + vy * uy < 0) { vx = -vx; vy = -vy; }
-        // Trägheit: an Gabelungen geradeaus weiterlaufen
-        ux = ux * INERTIA + vx * (1 - INERTIA);
-        uy = uy * INERTIA + vy * (1 - INERTIA);
-        const l = Math.hypot(ux, uy) || 1;
-        ux /= l; uy /= l;
+        flat = 0;
+        if (rd.lamB > PEAK_MAX) {
+          let vx = rd.rx, vy = rd.ry;
+          if (vx * ux + vy * uy < 0) { vx = -vx; vy = -vy; }
+          // Trägheit: an Gabelungen geradeaus weiterlaufen
+          ux = ux * INERTIA + vx * (1 - INERTIA);
+          uy = uy * INERTIA + vy * (1 - INERTIA);
+          const l = Math.hypot(ux, uy) || 1;
+          ux /= l; uy /= l;
+        }
+      } else if (++flat > PLATEAU) {
+        // Der Grat ist ausgelaufen (der Lauf ist neben die Mitte geraten, etwa
+        // am Ende eines Strichs oder in eine breite Fläche hinein). Die
+        // Verlängerung danach prüft selbst, ob sie noch auf der Mitte sitzt.
+        endStop = true;
+        break;
       }
       let nx = px + ux * STEP, ny = py + uy * STEP;
       const c = toCenter(dist, gw, gh, { x: nx, y: ny }, ux, uy);
@@ -496,7 +571,10 @@ function traceRidges(r: Raster, dist: Float32Array): P[][] {
       dRef = 0;
       for (let k = 0; k < filled; k++) if (win[k] > dRef) dRef = win[k];
       if (d < DMIN) { endStop = true; break; }
-      if (d < dRef - DELTA) {
+      // relativ: ein Strich darf auch ein Stück dünner werden (Verjüngung,
+      // Übergang in eine Ecke), ohne dass der Lauf abbricht. Nur ein echtes
+      // Ende – der Randabstand fällt auf einen Bruchteil – beendet ihn.
+      if (d < Math.max(DMIN * 1.5, dRef * (1 - TAPER))) {
         if (++below >= PERSIST) { for (let k = 0; k < PERSIST - 1; k++) pts.pop(); endStop = true; break; }
       } else below = 0;
       if (isVisited(nx, ny)) break;                                   // trifft früheren Pfad
@@ -509,13 +587,13 @@ function traceRidges(r: Raster, dist: Float32Array): P[][] {
     return { pts, loop, endStop, shoulder };
   };
 
-  // breite Stellen zuerst: so startet der Lauf in der Strichmitte und nicht
-  // an einer Eckenspitze, von der aus der Grat schräg in die Ecke läuft
-  seeds.sort((a, b) => b.d - a.d);
-
   const paths: P[][] = [];
-  for (const seed of seeds) {
+  // Breiteste Stelle zuerst: dort sitzt die Gabelung, von der aus der Strich
+  // in einem Zug in beide Richtungen abgelaufen wird.
+  peaks.sort((a, b) => b.d - a.d);
+  for (const seed of peaks) {
     if (isVisited(seed.p.x, seed.p.y)) continue;
+    if (seed.d < SEED_MIN) continue;
     const c0 = toCenter(dist, gw, gh, seed.p, seed.rx, seed.ry);
     const p0 = c0 ?? seed.p;
     const fwd = march(p0, seed.rx, seed.ry);
@@ -549,7 +627,7 @@ function traceRidges(r: Raster, dist: Float32Array): P[][] {
     const ds: number[] = pts.map((p) => sampleD(dist, gw, gh, p.x, p.y)).sort((a, b) => a - b);
     const dMed = ds[Math.floor(ds.length / 2)];
     const dMid = sampleD(dist, gw, gh, pts[Math.floor(pts.length / 2)].x, pts[Math.floor(pts.length / 2)].y);
-    if (len < 0.3 * 2 * dMid) continue;
+    if (len < STUB * 2 * dMid) continue;
     if (dMed < SLIVER) continue;               // Streifen entlang des Rands (Eckenhäkchen)
     for (const p of pts) mark(p.x, p.y);
     // Ecken-Häkchen nur dort wegmarkieren, wo der Lauf wirklich am Strichende

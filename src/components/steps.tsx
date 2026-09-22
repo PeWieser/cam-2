@@ -188,11 +188,15 @@ export function MachiningStep({ s, set, om, mode }: { s: Settings; set: (p: Part
           { value: 'contour', label: 'Umriss abfahren', hint: 'Jede Linie wird genau abgefahren' },
           { value: 'centerline', label: 'Mittellinie', hint: 'Schrift als ein Strich in der Mitte' }]} />
         {s.engraveMode === 'centerline' && (
-          <p className="-mt-0.5 text-[11.5px] leading-relaxed text-fg3">
-            Die Mittellinien erscheinen sofort <span className="text-[#22d3ee]">zyan</span> in der Ansicht – ein Strich wird dabei
-            in einem Zug gefräst, ohne dass der Kopf zwischendurch abhebt. Breite Flächen (z. B. die Plattenkante) haben keine
-            sinnvolle Mitte und werden weiterhin entlang ihres Umrisses graviert.
-          </p>
+          <>
+            <p className="-mt-0.5 text-[11.5px] leading-relaxed text-fg3">
+              Die Mittellinien erscheinen sofort <span className="text-[#22d3ee]">zyan</span> in der Ansicht – ein Strich wird dabei
+              in einem Zug gefräst, ohne dass der Kopf zwischendurch abhebt.
+            </p>
+            <Field label="Mittellinie bis" value={s.centerlineWidth} min={0.2} max={30} step={0.2} unit="mm"
+              onChange={(v) => set({ centerlineWidth: v })}
+              hint="Schwelle zwischen Strich und Fläche: Bis zu dieser Breite bekommt eine Form eine Mittellinie. Alles Breitere wird entlang seines Umrisses graviert – stell den Wert kleiner, wenn irgendwo Linien entstehen, wo keine hingehören." />
+          </>
         )}
         <Field label="Tiefe" value={s.engraveDepth} min={0.01} step={0.05} unit="mm" onChange={(v) => set({ engraveDepth: v })} />
       </Group>

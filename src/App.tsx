@@ -45,10 +45,10 @@ function Workbench() {
   const clPreview = useMemo(
     () => (s.engraveMode === 'centerline'
       // nur echte Mittellinien zeigen; zu breite Formen bleiben als Kontur stehen
-      ? centerlinePaths(activeContours(clContours, s).filter((c) => opOf(s, c.id) === 'engrave'), s.tolerance).filter((l) => l.centerline)
+      ? centerlinePaths(activeContours(clContours, s).filter((c) => opOf(s, c.id) === 'engrave'), s.tolerance, s.centerlineWidth).filter((l) => l.centerline)
       : []),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [clContours, s.engraveMode, s.tolerance, s.ops, s.minLength],
+    [clContours, s.engraveMode, s.tolerance, s.centerlineWidth, s.ops, s.minLength],
   );
   const stale = !!tp && tp.settingsKey !== settingsKey(s);
   const gcode = useMemo(() => (tp && mesh && !stale ? generateGcode(tp, s, mesh.name) : ''), [tp, s, mesh, stale]);

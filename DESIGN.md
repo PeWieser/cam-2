@@ -75,13 +75,13 @@ Wähler im Header („Modus“ links neben Undo/Redo). Die Wahl wird im Browser 
   | Schritt | Was passiert |
   | --- | --- |
   | Regionen | **jede Kontur bildet mit den in ihr liegenden Konturen ihre eigene Region** (Buchstabe „O“: Außenkontur + Zähler = Ring). Eine große Fläche kann die Mittellinie eines darin liegenden Strichs nicht mehr verfälschen |
-  | Probe | grobes Raster (220 px) + Distanztransformation: ist der größte Innenkreis klein gegen die Ausdehnung (≤ 30 % der Diagonale), ist die Form ein Strich – sonst eine **Fläche**, die entlang ihrer Kontur graviert wird. Die teure Feinberechnung entfällt dann ganz |
+  | Schwelle | grobes Raster (220 px) + Distanztransformation: der Durchmesser des größten Innenkreises entscheidet, ob die Form ein **Strich** ist oder eine **Fläche**. Zwei Bedingungen, beide müssen gelten: ≤ 30 % der Diagonale (ein Strich ist lang und schmal) **und** ≤ *Mittellinie bis* (Schwellwert, Standard 8 mm). Eine Fläche wird entlang ihres Umrisses graviert, die teure Feinberechnung entfällt dann ganz |
   | Rastern | Even-Odd-Scanline je Region, Auflösung aus Toleranz **und** geschätzter Strichbreite (2·Fläche/Umfang): mindestens ~8 Pixel über die Breite |
   | EDT | exakte euklidische Distanztransformation (Felzenszwalb, O(n)) – Abstand jedes Pixels zum Rand, bilinear auswertbar |
-  | Startpunkte | lokale Maxima der 8er-Nachbarschaft, zusätzlich Krümmung quer zum Grat (Hesse-Matrix) – nur so wird aus der Rastertreppe kein zweiter Grat |
-  | Lauf | von dort beidseitig in 0,7-Pixel-Schritten; die Gratrichtung ist der Eigenvektor zum *größeren* Eigenwert der Hesse-Matrix, mit Trägheit (65 %). Auf einem Plateau (breite Kreuzungsbereiche) ist die Gratrichtung Unsinn – dort läuft der Strich geradeaus weiter, bis wieder ein Grat da ist |
-  | Mitte | jeder Punkt wird über den lokalen Querschnitt (beide Ränder aus der EDT, subpixel-genau) auf die Mitte gesetzt – das nimmt die Rastertreppe heraus |
-  | Verlängern | die mediale Achse biegt am Strichende in die Ecken ab und endet schon eine halbe Strichbreite vor dem Ende. Der Lauf wird deshalb **geradeaus bis kurz vor den Rand verlängert** – Richtung aus den letzten Schritten, nicht aus der letzten Gratrichtung |
+  | Startpunkte | lokale Maxima der 8er-Nachbarschaft, zusätzlich Krümmung quer zum Grat (Hesse-Matrix, ≤ −0,4) – nur so wird aus der Rastertreppe kein zweiter Grat. Die breiteste Stelle zuerst: dort sitzt die Gabelung, von der aus der Strich in einem Zug abgelaufen wird |
+  | Lauf | von dort beidseitig in 0,7-Pixel-Schritten; die Gratrichtung ist der Eigenvektor zum *größeren* Eigenwert der Hesse-Matrix, mit Trägheit (65 %). Die Richtung wird in zwei Fällen **nicht** übernommen: am *Gipfel* (auch die Krümmung entlang des Grates ist stark negativ – das ist eine Gabelung, der Lauf bleibt gerade) und auf einem *Plateau* (kein Grat mehr, z. B. am Strichende – nach 10 Schritten ist Schluss) |
+  | Mitte | jeder Punkt wird auf das **Maximum des Randabstands** quer zur Laufrichtung gesetzt (Fenster ±halbe Breite, grob, dann parabelförmig verfeinert) – das nimmt die Rastertreppe heraus. Nicht die Mitte *zwischen* den beiden Rändern: die ist nur bei parallelen Flanken die Mitte, an Spitzen und Ecken liegt das Maximum woanders |
+  | Verlängern | die mediale Achse biegt am Strichende in die Ecken ab und endet schon eine halbe Strichbreite vor dem Ende. Der Lauf wird deshalb **geradeaus bis kurz vor den Rand verlängert** – Richtung aus den letzten Schritten, nicht aus der letzten Gratrichtung. Schritt für Schritt wird geprüft, ob der Querschnitt noch in der Mitte sitzt: ist er schief (Schieflage > 35 %), bricht die Verlängerung ab. Das ist der Schutz gegen Linien dort, wo gar kein Strich ist |
   | Verbinden | Pfade, die an einer Gabelung auseinandergefallen sind, werden wieder zusammengesetzt – aber nur, wenn der Verbindungsschnitt im Bauteil liegt |
   | Dubletten | Stücke, die fast ganz auf einem anderen liegen (der Grat springt an Gabelungen leicht zur Seite), werden verworfen – sonst fährt der Fräser zweimal über dieselbe Stelle |
 
@@ -97,6 +97,27 @@ Wähler im Header („Modus“ links neben Undo/Redo). Die Wahl wird im Browser 
 
   Ein „H“ (echte Außenkontur) ergibt 3–4 Züge: zwei Senkrechte über die volle Höhe, der Querbalken und der Übergang an den Kreuzungen.
 - Befund: Bei einer Platte mit **vertiefter** Schrift liegt der Buchstabe als Loch im Plattenrand. Alle Konturen gemeinsam gerastert ergab das ein Skelett, das **außen um die Buchstaben herum** lief statt durch sie hindurch – mit 210 mm Weg für zwei Zeichen. Maßnahme: die Regionenregel oben – jede Kontur rechnet für sich, der Plattenrand wird als Fläche erkannt und entlang seines Umrisses graviert.
+- Befund: Die Mittellinie **streute** an Spitzen (Fahne der „1“) und lief mitunter ins Leere, wo gar keine Geometrie ist – teils mitten über das Bauteil. Drei Ursachen, alle in der Gratverfolgung:
+  · Der Lauf wurde auf die Mitte *zwischen* den beiden Rändern gesetzt. An einer Spitze oder Ecke liegt das Maximum des Randabstands aber woanders, der Lauf driftete dadurch von der Mitte weg, verlor den Grat (Krümmung ≈ 0) und wurde mit 1,9 mm Verlängerung bis an den Rand fortgesetzt – das war die Linie ins Leere.
+  · Der Rand wurde nur im Fenster ±2 px um den Randabstand gesucht. Bei schiefen Querschnitten (Spitze, Gabelung) liegt der Rand auf einer Seite viel weiter weg, die Suche fand ihn nicht und korrigierte ins Falsche.
+  · Ein Strich galt schon als zu Ende, wenn der Randabstand um 1,2 Pixel fiel. An echten Übergängen (Ecke, Verjüngung) fällt er um mehr – der Lauf brach mitten im Strich ab, und die Verlängerung setzte den Rest schräg daneben.
+  Maßnahmen: Mitte = Maximum des Randabstands (oben), Randsuche mit grobem Fernbereich (±3·Abstand, Schrittweite wächst mit), und das Maß für „zu Ende“ ist **relativ** (35 % unter das örtliche Maximum) statt absolut.
+- Befund: Es fehlte eine Regel, ab wann eine Form ein Strich ist und ab wann eine Fläche. Maßnahme: **Schwellwert „Mittellinie bis“** (Standard 8 mm, 0,2–30 mm) im Schritt „Bearbeitung“ sichtbar, sobald „Mittellinie“ gewählt ist. Er wirkt zusammen mit der relativen Regel (30 % der Diagonale): eine Form bekommt nur dann eine Mittellinie, wenn ihre breiteste Stelle **beide** Grenzen einhält. Kleiner stellen = mehr Formen werden entlang ihres Umrisses graviert; größer stellen = auch breite Stege bekommen eine Mitte. Gemessen an einer Platte mit vertieftem „10“: 0,5 mm → alles Kontur, 1 mm → nur die „1“ als Mittellinie, ab 2 mm → beide Zeichen.
+- Ergebnis derselben Bauteile nach den beiden Blöcken oben (Toleranz 0,03 mm, DejaVu):
+
+  | Fall | alt | neu |
+  | --- | --- | --- |
+  | Buchstaben A–Z, a–z, 0–9 bei 10 mm | 294 Stücke, 1043 mm, 3 Punkte außerhalb | **102 Stücke**, 1038 mm, **0 Punkte außerhalb** |
+  | „B“ 10 mm | 11 Stücke | **1 Stück**, 23,0 mm |
+  | „M“ / „N“ 10 mm | 9 / 6 Stücke | **je 1 Stück** |
+  | „8“ 10 mm | 11 Stücke | **1 Stück**, 31,5 mm |
+  | Rahmen 100×60, Steg 5 mm | 7 Stücke, 325,9 mm | **1 geschlossener Zug**, 297,0 mm |
+  | Skala als Kamm (100 mm, 40 Zähne, 0,4 mm breit) | 60 Stücke | **41 Stücke** = eine Grundlinie + 40 Zähne |
+  | dto. mit 200 Zähnen, 0,2 mm breit | – | **201 Stücke**, 816 mm, kein Zahn verschluckt |
+  | „1“ mit spitzer Fahne | 3 Stücke, dazu 3,4 mm Linie ins Leere | **1 Stück**, 11,1 mm, durch die Spitze bis ans Ende |
+  | Balken 20 × 0,6 / 1 / 2 / 4 mm | – | 20,1 / 19,8 / 19,5 / 19,0 mm (ein Zug je Balken) |
+
+  Der Balken 20 × 8 mm bekommt keine Mittellinie mehr, sondern wird als Fläche entlang seines Umrisses graviert (Schwellwert bzw. 30-%-Regel) – das ist die gewollte Wirkung des Schwellwerts.
 - Befund: Der Kopf hob mitten im Strich ab, weil jedes Stück neu angefahren wurde. Maßnahme: erst die Geometrie heilen (ein Strich = ein Pfad), zusätzlich verbindet der Werkzeugweg zwei Gravurstücke unter 0,3 mm Abstand **ohne** Abheben (`LINK_GAP` in `src/lib/toolpath.ts`).
 - Befund: Die Mittellinie war erst nach „Berechnen“ sichtbar. Maßnahme: **Vorschau direkt bei der Wahl** – `centerlinePaths()` läuft im Schritt „Bearbeitung“ mit und zeichnet die Linien zyan (`#22d3ee`) in die Bühne; die Legende bekommt einen Eintrag, der berechnete Weg verdeckt die Vorschau. Gerechnet wird zurückgestellt (`useDeferredValue`), damit Regler beim Ziehen flüssig bleiben.
 - `computeCenterlines` liefert je Kontur ein Stück: entweder eine echte Mittellinie (`centerline: true`) oder – bei zu breiter Form – die Kontur selbst (`centerline: false`). Die Vorschau zeigt nur die Mittellinien, der Werkzeugweg nimmt beides. So geht keine markierte Linie verloren.

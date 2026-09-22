@@ -114,19 +114,27 @@ Legende: ✅ funktioniert · 🔧 in dieser Runde ergänzt · ⚠️ mit Einschr
 | H9 | „O“ als Ring (Außen- + Innenkontur) | ✅ | 1 geschlossener Zug, Länge 50,19 mm (ideal 50,27) |
 | H10 | Drei sehr dünne Striche (0,15 mm) | ✅ | 3 Züge, Länge 44,96 mm (ideal 45) |
 | H11 | Sehr feiner Strich (0,2 mm) bei Toleranz 0,2 mm | ✅ | Auflösung wird selbstständig verfeinert (≈ 8 Pixel über die Breite) |
-| H12 | Breiter Balken (4 mm) | ✅ | 1 Zug, 19,97 mm – läuft jetzt bis an die Kappe (vorher 1,9 mm zu kurz) |
+| H12 | Breiter Balken (4 mm) | ✅ | 1 Zug, 19,03 mm – läuft bis fast an die Kappe (vorher 1,9 mm zu kurz) |
 | H13 | Gefüllte Fläche 100 × 60 mm | ✅ | **keine** Mittellinie mehr, wird entlang des Umrisses graviert |
-| H14 | 120 Zeichen (480 Striche) | ✅ | ~170 ms, ein Zug je Strich |
+| H14 | 120 Striche (8 × 1 mm, im Raster) | ✅ | ~320 ms, ein Zug je Strich |
 | H15 | Mehrere Schnittebenen, Formen übereinander | ✅ | je Ebene eigenes Raster, keine Vermischung |
 | H16 | Vorschau: „Mittellinie“ wählen | ✅ | Linien erscheinen sofort zyan in der Bühne, knapp über der Ebene |
 | H17 | Vorschau bei geändertem Toleranz-Regler | ✅ | rechnet zurückgestellt nach, Bedienung bleibt flüssig |
 | H18 | Vorschau nach „Berechnen“ | ✅ | berechneter Weg verdeckt die Vorschau, Legendeneintrag wechselt |
 | H19 | Konturen auf „Aus“ oder „Tasche“ gesetzt | ✅ | erscheinen nicht in der Vorschau |
 | H20 | Zwei Gravurstücke mit < 0,3 mm Abstand | ✅ | werden ohne Abheben verbunden (`LINK_GAP`) |
-| H21 | **Platte mit vertiefter Schrift („10“)** | ✅ | Mittellinien liegen **in** den Buchstaben, nicht mehr außen herum; 9 Züge statt 210 mm Skelett um die Zeichen |
+| H21 | **Platte mit vertiefter Schrift („10“)** | ✅ | Mittellinien liegen **in** den Buchstaben, nicht mehr außen herum; 4 Züge, 31,4 mm statt 210 mm Skelett um die Zeichen |
 | H22 | Plattenrand allein (100 × 60 mm, eine Kontur) | ✅ | als Fläche erkannt → Kontur graviert, kein Skelett |
 | H23 | Gefülltes Quadrat 20 × 20, Kreis r=10 | ✅ | als Fläche erkannt → Kontur graviert |
-| H24 | Rahmen 100 × 60 mm, 5 mm Rand | ✅ | 7 Züge, 326 mm – Umlauf mittig im Rand plus Eckenspitzen |
-| H25 | Platte mit drei rechteckigen Löchern | ✅ | je Loch ein Zug mittig (3 × 20 mm), Platte als Kontur |
-| H26 | Buchstaben „A“–„Z“ (DejaVu, 10 mm) | ✅ | 139 Züge statt 206 (alt), kein Punkt außerhalb der Form |
-| H27 | Toleranz 0,02 / 0,05 / 0,1 mm | ✅ | alle Fälle innen, Längen stabil (± 1 %) |
+| H24 | Rahmen 100 × 60 mm, 5 mm Rand | ✅ | **1 geschlossener Zug**, 297,0 mm – genau mittig im Rand, keine Eckenhäkchen (vorher 7 Züge, 326 mm) |
+| H25 | Platte mit drei Schlitzen 10 × 2 mm | ✅ | 3 Züge, 28,5 mm – je Schlitz einer; Platte als Kontur |
+| H25b | Platte mit drei Löchern 10 × 10 mm | ✅ | **keine** Mittellinie: Löcher sind Flächen, werden als Kontur graviert |
+| H26 | Buchstaben A–Z, a–z, 0–9 (DejaVu, 10 mm) | ✅ | **102 Züge** statt 294 (alt), 0 von 1847 Punkten außerhalb der Form; „B“ 11 → 1 Zug, „M“ 9 → 1, „8“ 11 → 1 |
+| H27 | Toleranz 0,01 / 0,02 / 0,05 / 0,1 / 0,2 mm | ✅ | alle Fälle innen, Längen stabil (± 1 %); erst bei 0,2 mm zerfällt ein „B“ wieder in 4 Züge |
+| H28 | **„1“ mit spitzer Fahne** | ✅ | **1 Zug, 11,1 mm** durch die Spitze bis ans Strichende – vorher 3 Züge, dazu 3,4 mm Linie quer ins Leere bis an den Rand |
+| H29 | Skala als Kamm: 100 mm, 40 Zähne 0,4 mm breit, Lücke 0,1 mm | ✅ | **41 Züge** = eine Grundlinie + 40 Zähne, kein Zahn verschluckt, keine Linie dazwischen (vorher 60) |
+| H30 | dto. mit 200 Zähnen, 0,2 mm breit, Lücke 0,3 mm | ✅ | **201 Züge**, 816 mm |
+| H31 | Skala aus 20 einzelnen Zähnen (0,5 × 3 mm) | ✅ | 20 Züge, je 2,97 mm von 3 mm |
+| H32 | **Schwellwert „Mittellinie bis“** an Platte mit vertieftem „10“ | ✅ | 0,5 mm → 0 Züge (alles Kontur) · 1 mm → 1 Zug (nur die „1“) · 2 mm und 8 mm → 4 Züge (beide Zeichen) |
+| H33 | Balken 20 × 8 mm | ✅ | keine Mittellinie – breiter als der Schwellwert, wird entlang des Umrisses graviert |
+| H34 | Punkte knapp außerhalb der Form | ✅ | 30°-Strich: 1 von 8 Punkten 0,0016 mm außerhalb – Rasterquantisierung, ohne Belang |

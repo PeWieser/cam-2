@@ -56,6 +56,7 @@ export type Settings = {
   originZ: OriginZ;
   // Bearbeitung
   engraveMode: 'contour' | 'centerline';
+  centerlineWidth: number;     // mm: bis zu dieser Breite gilt eine Form als Strich
   engraveDepth: number;
   pocketDepth: number;
   pocketStepOver: number;
@@ -116,7 +117,7 @@ export const defaultSettings: Settings = {
   topAxis: '+z', rotZ: 0, mirror: false, scale: 1,
   sliceOffsets: [0.1], tolerance: 0.03,
   originXY: 'front-left', originZ: 'top',
-  engraveMode: 'contour', engraveDepth: 0.3,
+  engraveMode: 'contour', centerlineWidth: 8, engraveDepth: 0.3,
   pocketDepth: 1, pocketStepOver: 0.3,
   material: 2, cutOvershoot: 0.2, tabCount: 4, tabWidth: 3, tabHeight: 0.5,
   cutDir: 'climb', compensate: true,

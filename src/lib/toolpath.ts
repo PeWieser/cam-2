@@ -78,7 +78,7 @@ export type CenterlinePath = {
  * auch gefräst. Zu breite Formen (z. B. die Plattenkante) kommen als ihre
  * eigene Kontur zurück und werden damit wie bei „Kontur“ graviert.
  */
-export function centerlinePaths(contours: Contour[], tolerance: number): CenterlinePath[] {
+export function centerlinePaths(contours: Contour[], tolerance: number, maxWidth = Infinity): CenterlinePath[] {
   const byZ = new Map<number, Contour[]>();
   for (const c of contours) {
     if (!c.closed) continue;
@@ -87,7 +87,7 @@ export function centerlinePaths(contours: Contour[], tolerance: number): Centerl
   }
   const out: CenterlinePath[] = [];
   for (const [z, cs] of byZ) {
-    for (const piece of computeCenterlines(cs, tolerance)) out.push({ z, pts: piece.pts, centerline: piece.centerline });
+    for (const piece of computeCenterlines(cs, tolerance, maxWidth)) out.push({ z, pts: piece.pts, centerline: piece.centerline });
   }
   return out;
 }
@@ -123,7 +123,7 @@ export function computeToolpath(om: OrientedMesh, contours: Contour[], s: Settin
   // --- Gravur ---
   const eng = byOp('engrave');
   if (s.engraveMode === 'centerline') {
-    for (const l of centerlinePaths(eng, s.tolerance)) {
+    for (const l of centerlinePaths(eng, s.tolerance, s.centerlineWidth)) {
       // Zu breite Formen kommen als geschlossene Kontur zurück (wie bei „Kontur“)
       const closed = !l.centerline;
       if (pathLength(l.pts, closed) >= s.minLength) {
