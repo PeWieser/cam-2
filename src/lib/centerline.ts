@@ -80,7 +80,8 @@ export function computeCenterlines(contours: Contour[], tolerance: number, maxWi
     const tol = Math.max(tolerance * 0.5, r.res * 0.5);
     let found = false;
     for (const raw of traceRidges(r, dist, verts)) {
-      const pts = raw.map((p) => ({ x: r.ox + p.x * r.res, y: r.oy + p.y * r.res }));
+      const m = miter(raw, dist, r.gw, r.gh);
+      const pts = m.map((p) => ({ x: r.ox + p.x * r.res, y: r.oy + p.y * r.res }));
       const s = simplify(smooth(pts, SMOOTH), tol, false);
       if (s.length >= 2) { out.push({ pts: s, centerline: true }); found = true; }
     }
@@ -318,6 +319,9 @@ const SMOOTH_FADE = 0.35;  // rad: darüber nimmt die Glättung ab, ab ~46° gar
 const CORNER_MIN = 1.2;  // rad (~70°): spitzere Ecken sind eine Spitze – ihr Grat gehört zum Strich
 const CORNER_MAX = 2.5;  // rad (~145°): stumpfere Ecken werfen kein Häkchen
 const CORNER_TOL = 1.15; // Toleranz auf den theoretischen Abstand der Winkelhalbierenden
+const CORNER_LINK = 2.2; // Umweg über den Schnittpunkt, ab dem es keine Ecke ist (Vielfaches der Lücke)
+const MITER_TURN = 0.9;  // rad (~52°): ab dieser Richtungsänderung wird die Ecke gegratet
+const MITER_MAX = 6;     // höchstens so viele Ecken pro Stück
 
 /** bilinear interpolierter Randabstand; Pixel (ix,iy) hat die Mitte (ix+0.5, iy+0.5) */
 function sampleD(dist: Float32Array, gw: number, gh: number, x: number, y: number): number {
@@ -693,17 +697,95 @@ function cornerVerts(cs: Contour[], r: Raster): Vert[] {
   return out;
 }
 
+/**
+ * Klemmt die Ecken: die mediale Achse läuft an einer Ecke zwangsläufig im Bogen
+ * (Radius in der Größe der halben Strichbreite). Wo beide Schenkel gerade sind,
+ * werden sie bis zu ihrem Schnitt verlängert – dann sitzt die Ecke dort, wo sie
+ * im Modell sitzt, statt auf einem Bogen davor.
+ * Alles, was nicht eindeutig gerade ist (Bögen, Gabelungen), bleibt unberührt.
+ */
+function miter(pts: P[], dist: Float32Array, gw: number, gh: number): P[] {
+  let cur = pts;
+  for (let k = 0; k < MITER_MAX; k++) {
+    const next = oneMiter(cur, dist, gw, gh);
+    if (!next) break;
+    cur = next;
+  }
+  return cur;
+}
+
+function oneMiter(pts: P[], dist: Float32Array, gw: number, gh: number): P[] | null {
+  const n = pts.length;
+  if (n < 14) return null;
+  const dMid = sampleD(dist, gw, gh, pts[Math.floor(n / 2)].x, pts[Math.floor(n / 2)].y);
+  const W = Math.min(Math.max(Math.round(dMid * 1.2), 6), Math.floor(n / 3));
+  // schärfste Richtungsänderung über das Fenster
+  let best = -1, bestTurn = 0;
+  for (let i = W; i < n - W; i++) {
+    const ax = pts[i].x - pts[i - W].x, ay = pts[i].y - pts[i - W].y;
+    const bx = pts[i + W].x - pts[i].x, by = pts[i + W].y - pts[i].y;
+    const la = Math.hypot(ax, ay), lb = Math.hypot(bx, by);
+    if (la < 1e-9 || lb < 1e-9) continue;
+    const c = (ax * bx + ay * by) / (la * lb);
+    const turn = Math.acos(Math.max(-1, Math.min(1, c)));
+    if (turn > bestTurn) { bestTurn = turn; best = i; }
+  }
+  if (best < 0 || bestTurn < MITER_TURN) return null;
+  // Bei einem geschlossenen Stück liegt die Ecke unter Umständen am Anfang –
+  // dann wird das Stück so gedreht, dass sie in der Mitte sitzt, und am Ende
+  // wieder zurück.
+  const closed = Math.hypot(pts[0].x - pts[n - 1].x, pts[0].y - pts[n - 1].y) < 3;
+  const off = closed ? (((best - Math.floor(n / 2)) % n) + n) % n : 0;
+  const q = off ? [...pts.slice(off), ...pts.slice(0, off)] : pts;
+  const i = (((best - off) % n) + n) % n;
+  const d = sampleD(dist, gw, gh, q[i].x, q[i].y);
+  const L = Math.min(Math.max(Math.round(d * 3), 10), 80);   // Schenkel
+  const M = Math.min(Math.max(Math.round(d * 1.3), 4), 30);  // Bogen aussparen
+  const a0 = i - L, a1 = i - M, b0 = i + M, b1 = i + L;
+  if (a0 < 0 || b1 > n - 1 || a1 - a0 < 3 || b1 - b0 < 3) return null;
+  const la = fitLine(q, a0, a1), lb = fitLine(q, b0, b1);
+  const tol = Math.max(0.8, 0.05 * d);
+  if (!la || !lb || la.rms > tol || lb.rms > tol) return null;   // Schenkel nicht gerade
+  const den = la.dx * lb.dy - la.dy * lb.dx;
+  if (Math.abs(den) < 0.15) return null;
+  const t = ((lb.px - la.px) * lb.dy - (lb.py - la.py) * lb.dx) / den;
+  const x = { x: la.px + t * la.dx, y: la.py + t * la.dy };
+  if (Math.hypot(x.x - q[i].x, x.y - q[i].y) > Math.max(2 * d, 4)) return null;
+  if (sampleD(dist, gw, gh, x.x, x.y) < 1) return null;          // Schnitt liegt im Leeren
+  const res = [...q.slice(0, a0 + 1), x, ...q.slice(b1)];
+  return off ? [...res.slice(res.length - off), ...res.slice(0, res.length - off)] : res;
+}
+
+/** Ausgleichsgerade durch die Punkte a..b (Hauptachse); `rms` = mittlerer Abstand davon. */
+function fitLine(pts: P[], a: number, b: number): { px: number; py: number; dx: number; dy: number; rms: number } | null {
+  let sx = 0, sy = 0, m = 0;
+  for (let i = a; i <= b; i++) { sx += pts[i].x; sy += pts[i].y; m++; }
+  const cx = sx / m, cy = sy / m;
+  let xx = 0, xy = 0, yy = 0;
+  for (let i = a; i <= b; i++) { const u = pts[i].x - cx, v = pts[i].y - cy; xx += u * u; xy += u * v; yy += v * v; }
+  if (xx + yy < 1e-9) return null;
+  const ang = 0.5 * Math.atan2(2 * xy, xx - yy);
+  const dx = Math.cos(ang), dy = Math.sin(ang);
+  let sum = 0;
+  for (let i = a; i <= b; i++) { const u = pts[i].x - cx, v = pts[i].y - cy; const t = u * dy - v * dx; sum += t * t; }
+  return { px: cx, py: cy, dx, dy, rms: Math.sqrt(sum / m) };
+}
+
 /** Verlängert ein Stück geradeaus bis kurz vor den Rand – gleiche Regeln wie beim Lauf. */
 function prolong(pts: P[], dist: Float32Array, gw: number, gh: number) {
   const n = pts.length;
   if (n < 4) return;
-  const a = pts[Math.max(0, n - 1 - EXT_WIN)], b = pts[n - 1];
+  // Die Richtung wird über einen ganzen Schenkel gemessen, nicht nur über die
+  // letzten paar Punkte: sonst nimmt sie die Richtung des gerade gekappten
+  // Häkchens an und läuft genau wieder in die Ecke zurück.
+  const dEnd = sampleD(dist, gw, gh, pts[n - 1].x, pts[n - 1].y);
+  const a = pts[Math.max(0, n - 1 - Math.min(n - 1, Math.max(EXT_WIN, Math.round(1.2 * dEnd))))], b = pts[n - 1];
   let dx = b.x - a.x, dy = b.y - a.y;
   const l = Math.hypot(dx, dy);
   if (l < 1e-6) return;
   dx /= l; dy /= l;
   const step = STEP / 2;
-  const maxLen = Math.max(2, sampleD(dist, gw, gh, b.x, b.y) * 1.3 + 1.5);
+  const maxLen = Math.max(2, dEnd * 1.3 + 1.5);
   let px = b.x, py = b.y, len = 0;
   while (len < maxLen) {
     const nx = px + dx * step, ny = py + dy * step;
@@ -740,6 +822,8 @@ function pruneHooks(paths: P[][], verts: Vert[], dist: Float32Array, gw: number,
   };
   const out: P[][] = [];
   for (const pts of paths) {
+    // geschlossener Ring: hat keine Enden, also auch keine Häkchen
+    if (Math.hypot(pts[0].x - pts[pts.length - 1].x, pts[0].y - pts[pts.length - 1].y) < 2) { out.push(pts); continue; }
     let a = 0, b = pts.length - 1;
     while (a < b && atCorner(pts[a])) a++;
     while (b > a && atCorner(pts[b])) b--;
@@ -863,10 +947,26 @@ function linkPaths(paths: P[][], dist: Float32Array, gw: number, gh: number): P[
     return [(b.x - a.x) / l, (b.y - a.y) / l];
   };
   const isRing = (pts: P[]) => Math.hypot(pts[0].x - pts[pts.length - 1].x, pts[0].y - pts[pts.length - 1].y) < 2;
+  /**
+   * Schnittpunkt der beiden Schenkel: an einer Ecke fehlt der Bogen der Achse
+   * oft ganz (dort sitzt kein Maximum der Breite, an dem ein Lauf beginnen
+   * könnte). Ohne diesen Punkt würde die Verbindung als Sehne quer durch die
+   * Ecke laufen statt um sie herum.
+   */
+  const cornerAt = (a: P, u: [number, number], b: P, v: [number, number]): P | null => {
+    const wx = -v[0], wy = -v[1];                     // rückwärts in B hinein
+    const den = u[0] * wy - u[1] * wx;
+    if (Math.abs(den) < 0.3) return null;             // fast parallel
+    const t = ((b.x - a.x) * wy - (b.y - a.y) * wx) / den;
+    if (t <= 0) return null;
+    const x = { x: a.x + t * u[0], y: a.y + t * u[1] };
+    if ((b.x - x.x) * v[0] + (b.y - x.y) * v[1] <= 0) return null;
+    return x;
+  };
 
   let cur = paths;
   for (let round = 0; round < cur.length + 8; round++) {
-    let best: { i: number; j: number; score: number; flipI: boolean; flipJ: boolean } | null = null;
+    let best: { i: number; j: number; score: number; flipI: boolean; flipJ: boolean; via: P | null } | null = null;
     for (let i = 0; i < cur.length; i++) {
       for (let j = 0; j < cur.length; j++) {
         if (i === j) continue;
@@ -893,13 +993,28 @@ function linkPaths(paths: P[][], dist: Float32Array, gw: number, gh: number): P[
             const v = flipJ ? dir(B[B.length - 1], B[Math.max(0, B.length - 6)]) : dir(B[0], B[Math.min(B.length - 1, 5)]);
             const al = u[0] * v[0] + u[1] * v[1];
             if (al < -0.2) continue;                   // kein Rückwärtsgang
-            if (gap > 3) {                             // längere Verbindung muss gerade weiterlaufen
-              const c = dir(a, b);
-              if (u[0] * c[0] + u[1] * c[1] < 0.2 || c[0] * v[0] + c[1] * v[1] < 0.2) continue;
+            // Erst versuchen, die beiden Schenkel bis zu ihrem Schnitt zu
+            // verlängern (Ecke). Das greift nur, wenn der Schnitt nah genug
+            // liegt – bei einem Bogen liegt er weit draußen, dort bleibt es
+            // bei der einfachen Verbindung.
+            let via: P | null = null;
+            if (gap > 3) {
+              const x = cornerAt(a, u, b, v);
+              if (x) {
+                const la = Math.hypot(x.x - a.x, x.y - a.y), lb2 = Math.hypot(x.x - b.x, x.y - b.y);
+                if (la + lb2 <= CORNER_LINK * gap && la <= lim * 1.6 && lb2 <= lim * 1.6 &&
+                    inside(a, x) && inside(x, b)) via = x;
+              }
             }
-            if (!inside(a, b)) continue;
-            const score = gap / Math.max(0.25, al);
-            if (!best || score < best.score) best = { i, j, score, flipI, flipJ };
+            if (!via) {
+              if (gap > 3) {                           // längere Verbindung muss gerade weiterlaufen
+                const c = dir(a, b);
+                if (u[0] * c[0] + u[1] * c[1] < 0.2 || c[0] * v[0] + c[1] * v[1] < 0.2) continue;
+              }
+              if (!inside(a, b)) continue;
+            }
+            const score = gap / Math.max(0.25, al) * (via ? 1.5 : 1);
+            if (!best || score < best.score) best = { i, j, score, flipI, flipJ, via };
           }
         }
       }
@@ -907,7 +1022,7 @@ function linkPaths(paths: P[][], dist: Float32Array, gw: number, gh: number): P[
     if (!best) break;
     const A = best.flipI ? cur[best.i].slice().reverse() : cur[best.i];
     const B = best.flipJ ? cur[best.j].slice().reverse() : cur[best.j];
-    const merged = A.concat(B);
+    const merged = best.via ? A.concat([best.via], B) : A.concat(B);
     const next: P[][] = [];
     for (let i = 0; i < cur.length; i++) if (i !== best.i && i !== best.j) next.push(cur[i]);
     next.push(merged);

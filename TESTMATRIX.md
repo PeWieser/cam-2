@@ -138,8 +138,11 @@ Legende: ✅ funktioniert · 🔧 in dieser Runde ergänzt · ⚠️ mit Einschr
 | H32 | **Schwellwert „Mittellinie bis“** an Platte mit vertieftem „10“ | ✅ | 0,5 mm → 0 Züge (alles Kontur) · 1 mm → 1 Zug (nur die „1“) · 2 mm und 8 mm → 4 Züge (beide Zeichen) |
 | H33 | Balken 20 × 8 mm | ✅ | keine Mittellinie – breiter als der Schwellwert, wird entlang des Umrisses graviert |
 | H34 | Punkte knapp außerhalb der Form | ✅ | 30°-Strich: 1 von 8 Punkten 0,0016 mm außerhalb – Rasterquantisierung, ohne Belang |
-| H35 | **Häkchen in die Ecken** (Anfang, Ende, Mitte der „1“) | ✅ | gekappt: „1“ synthetisch 11,1 → **10,5 mm** in einem Zug, Enden laufen geradeaus bis 0,24 mm vor die Kappe. Erkennung über den Innenwinkel der Ecke (70–145°): Spitzen bleiben stehen, abgeflachte Kurven werden nicht angetastet |
+| H35 | **Häkchen in die Ecken** (Anfang, Ende, Mitte der „1“) | ✅ | gekappt und geradeaus bis an den Rand verlängert: „1“ synthetisch **11,2 mm** in einem Zug, Ende 0,24 mm vor der Kappe. Erkennung über den Innenwinkel der Ecke (70–145°): Spitzen bleiben stehen, abgeflachte Kurven werden nicht angetastet, geschlossene Ringe (keine Enden) bleiben ganz |
 | H36 | Häkchen bei „H“ 10 mm | ✅ | 3 Züge, 18,7 mm – die Senkrechten enden an den Kappen, kein Bogen in die vier Ecken (vorher 19,6 mm **mit** vier Häkchen) |
-| H37 | Rahmen 40 × 40 mm, Steg 5 mm | ✅ | 140,1 mm (ideal 4 × 35) – die Ecken sind keine Umwege mehr |
-| H38 | Ecken bleiben Ecken (Glättung) | ✅ | am 90°-Knick des „L“ 48° statt 44° Richtungsänderung – die Glättung greift dort nicht mehr zu |
-| H39 | Keine Einbußen durch das Kappen | ✅ | A–Z, a–z, 0–9: 100 Züge, 1025 mm, **0** von 1790 Punkten außerhalb; „O“/„S“/„8“/„X“ auf den Millimeter gleich lang wie vorher |
+| H37 | **Ecke statt Bogen** („L“ 8/1,6 mm) | ✅ | 14,0 mm, schärfste Ecke **90,0°** bei (0,79 / 7,20) – die Schenkel laufen bis zum Schnitt. Vorher 13,0 mm mit 44° verrundet |
+| H38 | Ecke beim Zusammenfügen | ✅ | fehlt der Bogen der Achse (dort sitzt kein Maximum der Breite), wird der Schnittpunkt der beiden Schenkel eingesetzt statt einer Sehne quer durch die Ecke – nur, wenn der Umweg klein bleibt (≤ 2,2 × Lücke) |
+| H39 | Rahmen 100 × 60 mm, Steg 5 mm | ✅ | **1 geschlossener Zug, 297,8 mm**; theoretisch 297,6 mm (die Achse läuft an den Ecken auf Parabeln, Ecke bei 2,93 / 2,93). Vorher 297,0 mm, zwischenzeitlich offen mit 3,5 mm Lücke |
+| H40 | Kreisring r = 8 / 7,6 mm | ✅ | 49,0 mm = 2 π × 7,8 (Mitte des Stegs) – auf 0,1 ‰ genau |
+| H41 | Keine Einbußen | ✅ | A–Z, a–z, 0–9 bei 10 mm: 100 Züge, 1031,5 mm, **0** von 1733 Punkten außerhalb; „O“ / „S“ / „8“ / „X“ unverändert 19,9 / 17,2 / 31,5 / 19,1 mm |
+| H42 | Rahmen 40 × 40 mm, Steg 5 mm | ⚠️ | 3 Züge, 141,0 mm (vorher 145,4 mm, 3 Züge): an den äußeren Ecken bleiben Häkchen stehen. Ursache: die Laufparameter hängen am Raster, und das Raster ist bei der kleinen Form feiner (0,025 statt 0,0625 mm je Zelle). Kein Rückschritt, aber noch nicht richtig |

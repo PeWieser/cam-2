@@ -86,6 +86,8 @@ Wähler im Header („Modus“ links neben Undo/Redo). Die Wahl wird im Browser 
   | Dubletten | Stücke, die fast ganz auf einem anderen liegen (der Grat springt an Gabelungen leicht zur Seite), werden verworfen – sonst fährt der Fräser zweimal über dieselbe Stelle |
   | Häkchen | Die mediale Achse hat an **jeder** Ecke einen Ast, der auf der Winkelhalbierenden in die Ecke zeigt. Erkennung: dort ist die nächstgelegene Ecke nur 1/sin(α/2)·Abstand entfernt (bei 90° das 1,41-fache des Randabstands). Solche Enden werden gekappt und danach **geradeaus bis an den Rand verlängert** – der Strich kommt am Ende an, aber ohne Bogen in die Ecke. Spitzen bleiben stehen (dort ist die Ecke ein Vielfaches weiter weg), und Ecken mit über 145° werfen kein Häkchen |
   | Glätten | der 3-Punkt-Glätter wird zurückgenommen, wo sich die Richtung vor und hinter einem Punkt stark ändert (ab ~26° weniger, ab ~46° gar nicht) – sonst wird aus einer Ecke ein Bogen |
+  | Gehrung | wo beide Schenkel gerade sind, werden sie bis zu ihrem Schnitt verlängert (ab ~52° Knick): die Achse rundet an Ecken zwangsläufig im Bogen, das Modell hat dort aber eine Ecke. Nur eindeutig gerade Schenkel werden gegratet (Rest der Ausgleichsgeraden ≤ 0,8 px), Bögen und Gabelungen bleiben wie sie sind |
+  | Verbinden | zwei Enden werden nicht einfach mit einer Sehne verbunden, wenn ihre Richtungen auseinanderlaufen: dann wird der Schnittpunkt der beiden Schenkel dazwischengesetzt – aber nur, wenn der Umweg klein bleibt (≤ 2,2 × Lücke). Bei einem Bogen liegt der Schnitt weit draußen, dort bleibt es bei der Sehne |
 
 - Ergebnis (20 mm langer Strich, 0,6 mm breit, Toleranz 0,03 mm):
 
