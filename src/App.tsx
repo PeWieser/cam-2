@@ -44,7 +44,8 @@ function Workbench() {
   const clContours = useDeferredValue(contours);
   const clPreview = useMemo(
     () => (s.engraveMode === 'centerline'
-      ? centerlinePaths(activeContours(clContours, s).filter((c) => opOf(s, c.id) === 'engrave'), s.tolerance)
+      // nur echte Mittellinien zeigen; zu breite Formen bleiben als Kontur stehen
+      ? centerlinePaths(activeContours(clContours, s).filter((c) => opOf(s, c.id) === 'engrave'), s.tolerance).filter((l) => l.centerline)
       : []),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [clContours, s.engraveMode, s.tolerance, s.ops, s.minLength],

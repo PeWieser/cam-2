@@ -190,7 +190,8 @@ export function MachiningStep({ s, set, om, mode }: { s: Settings; set: (p: Part
         {s.engraveMode === 'centerline' && (
           <p className="-mt-0.5 text-[11.5px] leading-relaxed text-fg3">
             Die Mittellinien erscheinen sofort <span className="text-[#22d3ee]">zyan</span> in der Ansicht – ein Strich wird dabei
-            in einem Zug gefräst, ohne dass der Kopf zwischendurch abhebt.
+            in einem Zug gefräst, ohne dass der Kopf zwischendurch abhebt. Breite Flächen (z. B. die Plattenkante) haben keine
+            sinnvolle Mitte und werden weiterhin entlang ihres Umrisses graviert.
           </p>
         )}
         <Field label="Tiefe" value={s.engraveDepth} min={0.01} step={0.05} unit="mm" onChange={(v) => set({ engraveDepth: v })} />

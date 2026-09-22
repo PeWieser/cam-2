@@ -4,103 +4,130 @@ import { simplify } from './geometry';
 /**
  * Mittellinien-Berechnung (Gravur entlang der Mitte von Strichen/Stegen).
  *
- * Der naive Weg (Füllung rastern → Zhang-Suen → Pixel ablaufen) hat zwei
+ * Ein Stück Ergebnis ist entweder eine echte Mittellinie (`centerline: true`)
+ * oder – für Formen, die zu breit für eine Mittellinie sind – die Kontur selbst
+ * (`centerline: false`). Letzteres ist wichtig, damit eine mit „Gravur“ markierte
+ * Plattenkante nicht als Skelett durch die ganze Platte läuft.
+ *
+ * Der naive Weg (Füllung rastern → Zhang-Suen → Pixel ablaufen) hat drei
  * Artefakte, die man im G-Code sieht:
  *   · Das Skelett ist eine Raster-Treppe mit seitlichen Zacken; bei schrägen
  *     Strichen weicht die „Mitte“ dadurch um ein Mehrfaches der Pixelgröße ab.
  *   · Der Ablauf startet an jedem Grad-1-Pixel, ein einziger Strich zerfällt
  *     dadurch in dutzende Stücke → wackelige Linie und ein Abheben je Stück.
+ *   · Die Mittellinie endet schon eine halbe Strichbreite vor dem Strichende,
+ *     weil das Skelett dort in die Ecken abbiegt.
  *
- * Die Pipeline hier vermeidet beides:
- *   1. Gruppieren – Konturen mit überlappender Bounding-Box kommen gemeinsam
- *                   in ein Raster; dadurch bleibt die Auflösung auch bei
- *                   vielen kleinen Zeichen hoch
- *   2. Rastern    – even-odd Scanline, Auflösung aus der geschätzten Strich-
+ * Die Pipeline hier vermeidet das:
+ *   1. Regionen   – jede Kontur bildet mit den in ihr liegenden Konturen eine
+ *                   eigene Region (Buchstabe „O“: außen + Zähler = Ring).
+ *                   Dadurch kann eine große Fläche (Platte) die Mittellinie
+ *                   eines darin liegenden Strichs nicht mehr verfälschen.
+ *   2. Probe      – grobes Raster + Distanztransformation: ist der größte
+ *                   Innenkreis klein gegen die Ausdehnung, ist die Form ein
+ *                   Strich – sonst eine Fläche und wird entlang der Kontur
+ *                   graviert. Das erspart die teure Feinberechnung.
+ *   3. Rastern    – even-odd Scanline, Auflösung aus der geschätzten Strich-
  *                   breite (mindestens ~8 Pixel über die Breite)
- *   3. EDT        – exakte euklidische Distanztransformation: Abstand jedes
+ *   4. EDT        – exakte euklidische Distanztransformation: Abstand jedes
  *                   Pixels zum Rand, subpixel-genau auswertbar
- *   4. Grat       – Startpunkte sind lokale Maxima im Randabstand; die Rich-
+ *   5. Grat       – Startpunkte sind lokale Maxima im Randabstand; die Rich-
  *                   tung kommt aus der Hesse-Matrix (Eigenvektor zum größeren
  *                   Eigenwert). Von dort wird beidseitig entlang des Grates
  *                   gelaufen (Schritt 0,7 px) und jeder Punkt über den lokalen
- *                   Querschnitt exakt auf die Mitte gesetzt. Das Ergebnis ist
- *                   glatt, subpixel-genau und ein Strich bleibt ein Strich,
- *                   weil an Gabelungen geradeaus weiter gelaufen wird
- *   5. Verbinden  – Stücke, die an einer Gabelung auseinandergefallen sind,
+ *                   Querschnitt exakt auf die Mitte gesetzt. Am Strichende
+ *                   wird geradeaus bis an den Rand verlängert – die Linie
+ *                   läuft damit von Strichanfang bis Strichende.
+ *   6. Verbinden  – Stücke, die an einer Gabelung auseinandergefallen sind,
  *                   werden wieder zusammengesetzt – aber nur, wenn der Ver-
  *                   bindungsschnitt im Bauteil liegt
  */
-export function computeCenterlines(contours: Contour[], tolerance: number): Vec2[][] {
-  const closed = contours.filter((c) => c.closed && c.pts.length >= 3);
-  if (!closed.length) return [];
+export type CenterlinePiece = {
+  pts: Vec2[];
+  /** false = Form ist zu breit für eine Mittellinie; `pts` ist dann die Kontur selbst */
+  centerline: boolean;
+};
 
-  const out: Vec2[][] = [];
+export function computeCenterlines(contours: Contour[], tolerance: number): CenterlinePiece[] {
+  const cs = contours.filter((c) => c.closed && c.pts.length >= 3);
+  if (!cs.length) return [];
+
+  const box = cs.map(bboxOf);
+  const out: CenterlinePiece[] = [];
   let budget = MAX_TOTAL_PX;
-  for (const group of groupContours(closed)) {
-    const r = rasterizeGroup(group, tolerance);
-    if (!r) continue;
-    const px = r.gw * r.gh;
-    if (budget - px < 0) continue;
-    budget -= px;
+
+  for (let i = 0; i < cs.length; i++) {
+    // Region = diese Kontur plus alle in ihr liegenden (Löcher und Inseln)
+    const region: Contour[] = [cs[i]];
+    for (let j = 0; j < cs.length; j++) {
+      if (i !== j && contains(cs[i], box[i], cs[j], box[j])) region.push(cs[j]);
+    }
+    const asContour: CenterlinePiece = { pts: cs[i].pts, centerline: false };
+    if (budget <= 0) { out.push(asContour); continue; }
+    if (!isStrokeLike(region, box[i])) { out.push(asContour); continue; }
+
+    const r = rasterize(region, fineRes(region, cs[i].depth, tolerance, box[i]), box[i]);
+    if (!r || r.area === 0) { out.push(asContour); continue; }
+    budget -= r.gw * r.gh;
     const dist = edt2d(r.g, r.gw, r.gh);
     const tol = Math.max(tolerance * 0.5, r.res * 0.5);
+    let found = false;
     for (const raw of traceRidges(r, dist)) {
       const pts = raw.map((p) => ({ x: r.ox + p.x * r.res, y: r.oy + p.y * r.res }));
-      const s = simplify(pts, tol, false);
-      if (s.length >= 2) out.push(s);
+      const s = simplify(smooth(pts, SMOOTH), tol, false);
+      if (s.length >= 2) { out.push({ pts: s, centerline: true }); found = true; }
     }
+    // Nichts gefunden (z. B. zu fein für das Raster) → lieber die Kontur gravieren
+    if (!found) out.push(asContour);
   }
   return out;
 }
 
 // ---------------------------------------------------------------------------
-// 1. Gruppen
+// 1. Regionen: liegt eine Kontur vollständig in einer anderen?
 // ---------------------------------------------------------------------------
 
-/** Fasst Konturen zusammen, deren Bounding-Boxen sich berühren (mit Rand). */
-function groupContours(cs: Contour[]): Contour[][] {
-  const n = cs.length;
-  if (n === 1) return [cs];
-  const box = cs.map((c) => {
-    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    for (const p of c.pts) {
-      if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x;
-      if (p.y < minY) minY = p.y; if (p.y > maxY) maxY = p.y;
-    }
-    return { minX, minY, maxX, maxY };
-  });
-  const parent = new Int32Array(n);
-  for (let i = 0; i < n; i++) parent[i] = i;
-  const find = (i: number): number => { while (parent[i] !== i) { parent[i] = parent[parent[i]]; i = parent[i]; } return i; };
+type Box = { minX: number; minY: number; maxX: number; maxY: number };
 
-  const m = 0.05;
-  const order = cs.map((_, i) => i).sort((a, b) => box[a].minY - box[b].minY);
-  for (let i = 0; i < order.length; i++) {
-    for (let j = i + 1; j < order.length; j++) {
-      const A = box[order[i]], B = box[order[j]];
-      if (B.minY > A.maxY + m) break;
-      if (B.minX <= A.maxX + m && B.maxX >= A.minX - m) {
-        const ra = find(order[i]), rb = find(order[j]);
-        if (ra !== rb) parent[rb] = ra;
-      }
+function bboxOf(c: Contour): Box {
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const p of c.pts) {
+    if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x;
+    if (p.y < minY) minY = p.y; if (p.y > maxY) maxY = p.y;
+  }
+  return { minX, minY, maxX, maxY };
+}
+
+function pointInPoly(p: Vec2, poly: Vec2[]): boolean {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const a = poly[j], b = poly[i];
+    if ((a.y > p.y) !== (b.y > p.y)) {
+      const t = (p.y - a.y) / (b.y - a.y);
+      if (p.x < a.x + t * (b.x - a.x)) inside = !inside;
     }
   }
-  const map = new Map<number, Contour[]>();
-  for (let i = 0; i < n; i++) {
-    const k = find(i);
-    const arr = map.get(k);
-    if (arr) arr.push(cs[i]); else map.set(k, [cs[i]]);
-  }
-  return [...map.values()];
+  return inside;
+}
+
+/** Liegt Kontur `d` vollständig innerhalb von Kontur `c`? (Begrenzungsrahmen + Stichproben) */
+function contains(c: Contour, cb: Box, d: Contour, db: Box): boolean {
+  if (db.minX < cb.minX || db.maxX > cb.maxX || db.minY < cb.minY || db.maxY > cb.maxY) return false;
+  const n = d.pts.length;
+  const at = (k: number) => d.pts[Math.min(n - 1, Math.floor((k * n) / 3))];
+  return pointInPoly(at(0), c.pts) && pointInPoly(at(1), c.pts) && pointInPoly(at(2), c.pts);
 }
 
 // ---------------------------------------------------------------------------
 // 2. Rastern
 // ---------------------------------------------------------------------------
 
-const MAX_SIDE = 1600;        // px pro Seite und Gruppe
+const MAX_SIDE = 1600;        // px pro Seite und Region
 const MIN_RES = 0.004;        // mm – feiner wird nicht gerastert
-const MAX_TOTAL_PX = 16e6;    // Obergrenze über alle Gruppen
+const MAX_TOTAL_PX = 16e6;    // Obergrenze über alle Regionen
+const PROBE_SIDE = 220;       // Kantenlänge des groben Rasters für die Probe
+const AREA_RATIO = 0.3;       // 2·Innenkreis-Radius darf höchstens so viel der Diagonale sein
+const SMOOTH = 2;             // Glättungsdurchgänge gegen das Zittern der Gratrichtung
 
 type Raster = {
   g: Uint8Array;
@@ -110,38 +137,17 @@ type Raster = {
   area: number;
 };
 
-/** Schätzt die typische Strichbreite einer Gruppe: 2·Fläche / Umfang. */
-function strokeWidth(group: Contour[]): number {
-  let a = 0, p = 0;
-  for (const c of group) {
-    a += c.area * (c.depth % 2 === 0 ? 1 : -1);
-    p += c.length;
-  }
-  if (p <= 0 || a <= 0) return 0;
-  return (2 * a) / p;
-}
+const PAD = 2;                // Pixel Rand um die Region
 
-function rasterizeGroup(group: Contour[], tolerance: number): Raster | null {
-  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-  for (const c of group) for (const p of c.pts) {
-    if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x;
-    if (p.y < minY) minY = p.y; if (p.y > maxY) maxY = p.y;
-  }
-  const w = maxX - minX, h = maxY - minY;
+/** Even-odd-Scanline über die gegebenen Konturen. */
+function rasterize(cs: Contour[], res: number, b: Box): Raster | null {
+  const w = b.maxX - b.minX, h = b.maxY - b.minY;
   if (!(w > 0) && !(h > 0)) return null;
-
-  // Auflösung: Toleranz, aber mindestens ~8 Pixel über die Strichbreite
-  let res = Math.max(0.02, Math.min(tolerance, 0.2));
-  const wEst = strokeWidth(group);
-  if (wEst > 0) res = Math.min(res, Math.max(MIN_RES, wEst / 8));
-  res = Math.max(res, Math.max(w, h) / MAX_SIDE);
-
-  const pad = 2;
-  const gw = Math.ceil(w / res) + 1 + pad * 2;
-  const gh = Math.ceil(h / res) + 1 + pad * 2;
+  const gw = Math.ceil(w / res) + 1 + PAD * 2;
+  const gh = Math.ceil(h / res) + 1 + PAD * 2;
   if (gw < 5 || gh < 5 || gw * gh > MAX_TOTAL_PX) return null;
-  const ox = minX - pad * res;
-  const oy = minY - pad * res;
+  const ox = b.minX - PAD * res;
+  const oy = b.minY - PAD * res;
   const g = new Uint8Array(gw * gh);
 
   // Segmente nach Zeile einsortieren (even-odd Scanline)
@@ -154,7 +160,7 @@ function rasterizeGroup(group: Contour[], tolerance: number): Raster | null {
     const seg = { x0: ax, y0: ay, dx: bx - ax, dy: by - ay };
     for (let r = r0; r <= r1; r++) rows[r].push(seg);
   };
-  for (const c of group) {
+  for (const c of cs) {
     const pts = c.pts;
     // i und j laufen versetzt, damit die Schlusskante enthalten ist
     for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) addSeg(pts[j].x, pts[j].y, pts[i].x, pts[i].y);
@@ -171,15 +177,15 @@ function rasterizeGroup(group: Contour[], tolerance: number): Raster | null {
       xs.push(s.x0 + ((y - s.y0) / s.dy) * s.dx);
     }
     if (xs.length < 2) continue;
-    xs.sort((a, b) => a - b);
+    xs.sort((a, b2) => a - b2);
     const base = gy * gw;
     for (let k = 0; k + 1 < xs.length; k += 2) {
-      const a = (xs[k] - ox) / res, b = (xs[k + 1] - ox) / res;
-      let x0 = Math.round(a), x1 = Math.round(b) - 1;
+      const a = (xs[k] - ox) / res, b2 = (xs[k + 1] - ox) / res;
+      let x0 = Math.round(a), x1 = Math.round(b2) - 1;
       if (x1 < x0) {
         // schmaler als ein Pixel: wenigstens ein Pixel, sonst reißt der Strich
-        const xm = Math.round((a + b) / 2);
-        if (xm >= 0 && xm < gw && b - a > 0.02) { g[base + xm] = 1; area++; }
+        const xm = Math.round((a + b2) / 2);
+        if (xm >= 0 && xm < gw && b2 - a > 0.02) { g[base + xm] = 1; area++; }
         continue;
       }
       x0 = Math.max(0, x0); x1 = Math.min(gw - 1, x1);
@@ -187,6 +193,46 @@ function rasterizeGroup(group: Contour[], tolerance: number): Raster | null {
     }
   }
   return { g, gw, gh, ox, oy, res, area };
+}
+
+/**
+ * Schätzt die typische Strichbreite einer Region: 2·Fläche / Umfang.
+ * Die Fläche zählt relativ zur Wurzel der Region – bei einem vertieften
+ * Buchstaben ist die Wurzel ein Loch, dann sind die Vorzeichen umgekehrt.
+ */
+function strokeWidth(cs: Contour[], root: number): number {
+  let a = 0, p = 0;
+  for (const c of cs) {
+    a += c.area * ((c.depth - root) % 2 === 0 ? 1 : -1);
+    p += c.length;
+  }
+  if (p <= 0 || a <= 0) return 0;
+  return (2 * a) / p;
+}
+
+/** Auflösung für die Feinberechnung: Toleranz, aber mindestens ~8 Pixel über die Breite. */
+function fineRes(cs: Contour[], root: number, tolerance: number, b: Box): number {
+  let res = Math.max(0.02, Math.min(tolerance, 0.2));
+  const wEst = strokeWidth(cs, root);
+  if (wEst > 0) res = Math.min(res, Math.max(MIN_RES, wEst / 8));
+  return Math.max(res, Math.max(b.maxX - b.minX, b.maxY - b.minY) / MAX_SIDE);
+}
+
+/**
+ * Strich oder Fläche? Ein Strich ist lang und schmal: sein größter Innenkreis
+ * ist klein gegen die Ausdehnung der Form. Eine Platte, ein Punkt oder ein
+ * gefülltes Rechteck sind Flächen – für sie ist eine Mittellinie Unsinn.
+ */
+function isStrokeLike(cs: Contour[], b: Box): boolean {
+  const diag = Math.hypot(b.maxX - b.minX, b.maxY - b.minY);
+  if (!(diag > 0)) return false;
+  const res = diag / PROBE_SIDE;
+  const r = rasterize(cs, res, b);
+  if (!r || r.area === 0) return true;             // im Grobraster nichts erkannt → lieber versuchen
+  const d = edt2d(r.g, r.gw, r.gh);
+  let mx = 0;
+  for (let i = 0; i < d.length; i++) if (d[i] > mx) mx = d[i];
+  return 2 * mx * r.res <= AREA_RATIO * diag;
 }
 
 // ---------------------------------------------------------------------------
@@ -242,11 +288,14 @@ type P = { x: number; y: number };   // kontinuierliche Pixelkoordinaten
 const STEP = 0.7;      // Schrittweite in Pixeln
 const DMIN = 0.6;      // minimaler Randabstand in Pixeln (darunter ist Schluss)
 const LOOP_EPS = 1.4;  // Abstand, ab dem ein Pfad als geschlossen gilt
-const DELTA = 0.8;     // px: soviel darf der Randabstand unter das lokale Maß fallen
+const DELTA = 1.2;     // px: soviel darf der Randabstand unter das lokale Maß fallen
 const WIN = 24;        // Schritte im Fenster für das lokale Maß
 const PERSIST = 3;     // so viele Schritte muss der Abstand gefallen sein
 const SEED_MIN = 0.9;  // px: minimaler Randabstand für einen Startpunkt
 const INERTIA = 0.65;  // Anteil der bisherigen Richtung (Trägheit an Gabelungen)
+const SLIVER = 1.1;    // px: Stücke, die im Mittel näher als das am Rand liegen, sind Reste
+const EXT_WIN = 10;    // Punkte, über die die Richtung für die Verlängerung gemittelt wird
+const RIDGE_MIN = -0.15; // Krümmung quer zum Grat: ab hier gilt die Richtung als Grat
 
 /** bilinear interpolierter Randabstand; Pixel (ix,iy) hat die Mitte (ix+0.5, iy+0.5) */
 function sampleD(dist: Float32Array, gw: number, gh: number, x: number, y: number): number {
@@ -287,20 +336,34 @@ function ridgeDir(dist: Float32Array, gw: number, gh: number, x: number, y: numb
   return { rx: rx / l, ry: ry / l, lamA: tr - det };
 }
 
+/**
+ * Sucht den Rand auf einer Seite: dort, wo der Randabstand null wird.
+ * Zwischen den letzten beiden Stützstellen wird linear interpoliert.
+ */
+function findEdge(dist: Float32Array, gw: number, gh: number, px: number, py: number, nx: number, ny: number, sgn: number): number | null {
+  const d = sampleD(dist, gw, gh, px, py);
+  const from = Math.max(0, d - 1.2), to = d + 2.0;
+  let sPrev = 0, dPrev = sampleD(dist, gw, gh, px, py);
+  for (let s = from; s <= to; s += 0.5) {
+    const ds = sampleD(dist, gw, gh, px + nx * sgn * s, py + ny * sgn * s);
+    if (ds <= 0.05) return sgn * s;
+    if (ds <= 1) {
+      // Nullstelle zwischen sPrev und s (der Abstand fällt mit Steigung ≈ -1)
+      const t = dPrev - ds;
+      return sgn * (t > 1e-6 ? sPrev + (s - sPrev) * (dPrev / t) : s);
+    }
+    sPrev = s; dPrev = ds;
+  }
+  return null;                      // Gabelung oder Ecke → keine Korrektur
+}
+
 /** Setzt einen Punkt in die Mitte des Querschnitts senkrecht zur Laufrichtung. */
 function toCenter(dist: Float32Array, gw: number, gh: number, p: P, dx: number, dy: number): P | null {
   const nx = -dy, ny = dx;
   const d = sampleD(dist, gw, gh, p.x, p.y);
   if (d < DMIN) return null;
-  const from = Math.max(0, d - 1.2), to = d + 2.0;
-  const edge = (sgn: number): number | null => {
-    for (let s = from; s <= to; s += 0.5) {
-      const ds = sampleD(dist, gw, gh, p.x + nx * sgn * s, p.y + ny * sgn * s);
-      if (ds <= 1) return sgn * (s + ds);
-    }
-    return null;
-  };
-  const a = edge(1), b = edge(-1);
+  const a = findEdge(dist, gw, gh, p.x, p.y, nx, ny, 1);
+  const b = findEdge(dist, gw, gh, p.x, p.y, nx, ny, -1);
   if (a === null || b === null) return null;          // Gabelung oder Ecke → nicht korrigieren
   const mid = (a + b) / 2;
   if (Math.abs(mid) > Math.max(1.5, d)) return null;  // unplausibel
@@ -329,17 +392,11 @@ function traceRidges(r: Raster, dist: Float32Array): P[][] {
    */
   const markFan = (x: number, y: number, dx: number, dy: number, len: number) => {
     const base = Math.atan2(dy, dx);
-    for (let k = -2; k <= 2; k++) {
-      const a = base + (k * 25 * Math.PI) / 180;
+    const n = Math.ceil(len);
+    for (let k = -3; k <= 3; k++) {
+      const a = base + (k * 20 * Math.PI) / 180;
       const ux = Math.cos(a), uy = Math.sin(a);
-      const n = Math.ceil(len);
-      for (let s = 1; s <= n; s++) {
-        const ix = Math.floor(x + ux * s), iy = Math.floor(y + uy * s);
-        for (let j = -1; j <= 1; j++) for (let i = -1; i <= 1; i++) {
-          const xx = ix + i, yy = iy + j;
-          if (xx >= 0 && yy >= 0 && xx < gw && yy < gh) visited[yy * gw + xx] = 1;
-        }
-      }
+      for (let s = 1; s <= n; s++) mark(x + ux * s, y + uy * s);
     }
   };
   const isVisited = (x: number, y: number) => {
@@ -368,10 +425,46 @@ function traceRidges(r: Raster, dist: Float32Array): P[][] {
     }
   }
 
-  /** Läuft von p0 in Richtung (dx,dy), bis der Grat endet. */
-  const march = (p0: P, dx: number, dy: number): { pts: P[]; loop: boolean; endStop: boolean } => {
+  /**
+   * Verlängert einen Lauf geradeaus bis kurz vor den Rand. Das Skelett biegt
+   * am Strichende in die Ecken ab und endet dadurch schon eine halbe Strich-
+   * breite vor dem Ende – für die Gravur soll die Linie aber bis ans Ende laufen.
+   * Die Richtung ist die Sehne über die letzten Schritte, denn die Gratrichtung
+   * zeigt an der Schulter schon in die Ecke. War der Lauf sehr kurz (Start dicht
+   * an der Schulter), wird er verworfen und ab dem Startpunkt verlängert.
+   * Zurück kommt die Schulter – von dort wird der Fächer markiert.
+   */
+  const extend = (start: P, pts: P[], dirX: number, dirY: number): P => {
+    let dx = dirX, dy = dirY;
+    const back = Math.min(pts.length - 1, EXT_WIN);
+    if (back >= 3) {
+      const a = pts[pts.length - 1 - back], b = pts[pts.length - 1];
+      const l = Math.hypot(b.x - a.x, b.y - a.y);
+      if (l > 1e-6) { dx = (b.x - a.x) / l; dy = (b.y - a.y) / l; }
+    }
+    let shoulder: P = pts.length ? pts[pts.length - 1] : start;
+    if (pts.length < 4) { pts.length = 0; shoulder = start; }
+    const dEnd = sampleD(dist, gw, gh, shoulder.x, shoulder.y);
+    const step = STEP / 2;
+    const maxLen = Math.max(2, dEnd * 1.3 + 1.5);
+    let px = shoulder.x, py = shoulder.y, len = 0;
+    while (len < maxLen) {
+      const nx = px + dx * step, ny = py + dy * step;
+      if (sampleD(dist, gw, gh, nx, ny) < 1) break;        // Rand erreicht
+      px = nx; py = ny; len += step;
+      pts.push({ x: px, y: py });
+    }
+    return shoulder;
+  };
+
+  /**
+   * Läuft von p0 in Richtung (dx0,dy0), bis der Grat endet. `shoulder` ist der
+   * Punkt, an dem die Verlängerung zum Strichende ansetzt.
+   */
+  const march = (p0: P, dx0: number, dy0: number): { pts: P[]; loop: boolean; endStop: boolean; shoulder: P } => {
     const pts: P[] = [];
     let px = p0.x, py = p0.y;
+    let ux = dx0, uy = dy0;            // Laufrichtung (wird mit Trägheit nachgeführt)
     let travelled = 0;
     let loop = false;
     let endStop = false;
@@ -381,17 +474,19 @@ function traceRidges(r: Raster, dist: Float32Array): P[][] {
     let below = 0;                          // Schritte unter dem Maß
     for (let step = 0; step < 200000; step++) {
       const rd = ridgeDir(dist, gw, gh, px, py);
-      if (rd) {
-        let ux = rd.rx, uy = rd.ry;
-        if (ux * dx + uy * dy < 0) { ux = -ux; uy = -uy; }
+      // Auf einem Plateau (breite Stelle, z. B. Kreuzungsbereich) ist die Grat-
+      // richtung Unsinn – dort geradeaus weiter, bis wieder ein Grat da ist
+      if (rd && rd.lamA < RIDGE_MIN) {
+        let vx = rd.rx, vy = rd.ry;
+        if (vx * ux + vy * uy < 0) { vx = -vx; vy = -vy; }
         // Trägheit: an Gabelungen geradeaus weiterlaufen
-        dx = dx * INERTIA + ux * (1 - INERTIA);
-        dy = dy * INERTIA + uy * (1 - INERTIA);
-        const l = Math.hypot(dx, dy) || 1;
-        dx /= l; dy /= l;
+        ux = ux * INERTIA + vx * (1 - INERTIA);
+        uy = uy * INERTIA + vy * (1 - INERTIA);
+        const l = Math.hypot(ux, uy) || 1;
+        ux /= l; uy /= l;
       }
-      let nx = px + dx * STEP, ny = py + dy * STEP;
-      const c = toCenter(dist, gw, gh, { x: nx, y: ny }, dx, dy);
+      let nx = px + ux * STEP, ny = py + uy * STEP;
+      const c = toCenter(dist, gw, gh, { x: nx, y: ny }, ux, uy);
       if (c) { nx = c.x; ny = c.y; }
       const d = sampleD(dist, gw, gh, nx, ny);
       // Bezug: größter Randabstand der letzten Schritte – ein kurzes Dippen
@@ -410,7 +505,8 @@ function traceRidges(r: Raster, dist: Float32Array): P[][] {
       travelled += STEP;
       px = nx; py = ny;
     }
-    return { pts, loop, endStop };
+    const shoulder = endStop && !loop ? extend(p0, pts, dx0, dy0) : (pts.length ? pts[pts.length - 1] : p0);
+    return { pts, loop, endStop, shoulder };
   };
 
   // breite Stellen zuerst: so startet der Lauf in der Strichmitte und nicht
@@ -423,13 +519,25 @@ function traceRidges(r: Raster, dist: Float32Array): P[][] {
     const c0 = toCenter(dist, gw, gh, seed.p, seed.rx, seed.ry);
     const p0 = c0 ?? seed.p;
     const fwd = march(p0, seed.rx, seed.ry);
+    // Startrichtung für den Rücklauf aus dem Hinlauf: die Gratrichtung am
+    // Startpunkt zeigt mitunter schon in eine Ecke (Start dicht am Strichrand)
+    let bx = -seed.rx, by = -seed.ry;
+    if (fwd.pts.length >= 4) {
+      const a = fwd.pts[Math.min(3, fwd.pts.length - 1)];
+      const b = fwd.pts[Math.min(13, fwd.pts.length - 1)];
+      const l = Math.hypot(b.x - a.x, b.y - a.y);
+      if (l > 1e-6) { bx = -(b.x - a.x) / l; by = -(b.y - a.y) / l; }
+    }
     const pts: P[] = [];
     let bwdStop = false;
+    let bwdShoulder: P = p0, fwdShoulder: P = fwd.shoulder;
     if (fwd.loop) {
       pts.push(p0, ...fwd.pts);
+      fwdShoulder = fwd.shoulder;
     } else {
-      const back = march(p0, -seed.rx, -seed.ry);
+      const back = march(p0, bx, by);
       bwdStop = back.endStop;
+      bwdShoulder = back.shoulder;
       for (let i = back.pts.length - 1; i >= 0; i--) pts.push(back.pts[i]);
       pts.push(p0);
       for (const q of fwd.pts) pts.push(q);
@@ -438,35 +546,111 @@ function traceRidges(r: Raster, dist: Float32Array): P[][] {
     // zu kurze Stückchen an Gabelungen verwerfen: kürzer als die halbe Breite
     let len = 0;
     for (let i = 1; i < pts.length; i++) len += Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
-    const mid = pts[Math.floor(pts.length / 2)];
-    if (len < 0.3 * 2 * sampleD(dist, gw, gh, mid.x, mid.y)) continue;
+    const ds: number[] = pts.map((p) => sampleD(dist, gw, gh, p.x, p.y)).sort((a, b) => a - b);
+    const dMed = ds[Math.floor(ds.length / 2)];
+    const dMid = sampleD(dist, gw, gh, pts[Math.floor(pts.length / 2)].x, pts[Math.floor(pts.length / 2)].y);
+    if (len < 0.3 * 2 * dMid) continue;
+    if (dMed < SLIVER) continue;               // Streifen entlang des Rands (Eckenhäkchen)
     for (const p of pts) mark(p.x, p.y);
     // Ecken-Häkchen nur dort wegmarkieren, wo der Lauf wirklich am Strichende
-    // endete – an Gabelungen darf der Nachbarpfad weiterlaufen
+    // endete – an Gabelungen darf der Nachbarpfad weiterlaufen. Der Fächer
+    // sitzt an der Schulter, damit er auch die Grate abdeckt, die von dort in
+    // die Ecken laufen.
     const ends: [P, P, boolean][] = [
-      [pts[1], pts[0], bwdStop],
-      [pts[pts.length - 2], pts[pts.length - 1], fwd.endStop],
+      [bwdShoulder, pts[0], bwdStop && !fwd.loop],
+      [fwdShoulder, pts[pts.length - 1], fwd.endStop],
     ];
-    for (const [a, b, stop] of ends) {
+    for (const [a, tip, stop] of ends) {
       if (!stop) continue;
-      let dx = b.x - a.x, dy = b.y - a.y;
+      let dx = tip.x - a.x, dy = tip.y - a.y;
       const l = Math.hypot(dx, dy) || 1;
       dx /= l; dy /= l;
-      const d = sampleD(dist, gw, gh, b.x, b.y);
-      markFan(b.x, b.y, dx, dy, Math.min(12, Math.max(3, 1.5 * d)));
+      const d = sampleD(dist, gw, gh, a.x, a.y);
+      markFan(a.x, a.y, dx, dy, Math.min(16, Math.max(4, d * 1.2 + 2)));
     }
     paths.push(pts);
   }
-  return linkPaths(paths, dist, gw, gh);
+  return dropDuplicates(linkPaths(paths, dist, gw, gh), dist, gw, gh);
+}
+
+/** Wenige Züge eines 3-Punkt-Glätters: dämpft das Zittern der Gratrichtung. */
+function smooth(pts: P[], iter: number): P[] {
+  let cur = pts;
+  for (let k = 0; k < iter; k++) {
+    if (cur.length < 3) return cur;
+    const next: P[] = [cur[0]];
+    for (let i = 1; i < cur.length - 1; i++) {
+      next.push({
+        x: 0.25 * cur[i - 1].x + 0.5 * cur[i].x + 0.25 * cur[i + 1].x,
+        y: 0.25 * cur[i - 1].y + 0.5 * cur[i].y + 0.25 * cur[i + 1].y,
+      });
+    }
+    next.push(cur[cur.length - 1]);
+    cur = next;
+  }
+  return cur;
+}
+
+/**
+ * Verwirft Stücke, die fast ganz auf einem anderen Stück liegen. Der Grat
+ * springt an Gabelungen (etwa wo ein Balken an einen anderen stößt) leicht zur
+ * Seite; dabei entsteht neben der geraden Mittellinie ein zweites, kaum
+ * versetztes Stück. Es würde nur ein zweites Mal über dieselbe Stelle fahren.
+ */
+function dropDuplicates(paths: P[][], dist: Float32Array, gw: number, gh: number): P[][] {
+  if (paths.length < 2) return paths;
+  let total = 0;
+  for (const p of paths) total += p.length;
+  if (total > 60000) return paths;                        // zu viel für den Vergleich
+  const lenOf = (p: P[]) => {
+    let l = 0;
+    for (let i = 1; i < p.length; i++) l += Math.hypot(p[i].x - p[i - 1].x, p[i].y - p[i - 1].y);
+    return l;
+  };
+  const box = (p: P[]) => {
+    let a = Infinity, b = Infinity, c = -Infinity, d = -Infinity;
+    for (const q of p) { if (q.x < a) a = q.x; if (q.x > c) c = q.x; if (q.y < b) b = q.y; if (q.y > d) d = q.y; }
+    return { a, b, c, d };
+  };
+  const order = paths.map((_, i) => i).sort((i, j) => lenOf(paths[j]) - lenOf(paths[i]));
+  const boxes = paths.map(box);
+  const kept: P[][] = [];
+  const keptBox: { a: number; b: number; c: number; d: number }[] = [];
+  for (const i of order) {
+    const A = paths[i], ba = boxes[i];
+    const step = Math.max(1, Math.floor(A.length / 14));
+    let n = 0, covered = 0;
+    for (let k = 0; k < A.length; k += step) {
+      const p = A[k]; n++;
+      const tol = Math.max(2, 0.35 * sampleD(dist, gw, gh, p.x, p.y));
+      let best = Infinity;
+      for (let m = 0; m < kept.length; m++) {
+        const bb = keptBox[m];
+        if (p.x < bb.a - tol || p.x > bb.c + tol || p.y < bb.b - tol || p.y > bb.d + tol) continue;
+        const B = kept[m];
+        for (let q = 0; q < B.length; q += 2) {
+          const g = Math.hypot(B[q].x - p.x, B[q].y - p.y);
+          if (g < best) best = g;
+        }
+      }
+      if (best <= tol) covered++;
+    }
+    if (n > 0 && covered / n >= 0.65) continue;            // liegt auf einem anderen Stück
+    kept.push(A); keptBox.push(ba);
+  }
+  return kept;
 }
 
 /**
  * Verbindet Pfade, die an einer Gabelung auseinandergefallen sind, wieder zu
- * einem Stück. Der Verbindungsschnitt muss dabei im Bauteil liegen – es wird
- * also nie über eine Lücke zwischen zwei Strichen hinweg verbunden.
+ * einem Stück. Der Grat springt an Gabelungen etwas zur Seite, deshalb darf
+ * die Verbindung auch ein kleines Stück vor dem Ende des Nachbarn ansetzen
+ * (TRIM) – nie aber mitten hinein, sonst zerfällt der Nachbar in zwei Teile.
+ * Die Verbindung muss immer im Bauteil liegen.
  */
 function linkPaths(paths: P[][], dist: Float32Array, gw: number, gh: number): P[][] {
   if (paths.length < 2) return paths;
+  const TRIM = 10;                   // Punkte, die am Nachbarn abgeschnitten werden dürfen
   const inside = (a: P, b: P): boolean => {
     for (let k = 1; k < 8; k++) {
       const t = k / 8;
@@ -478,26 +662,44 @@ function linkPaths(paths: P[][], dist: Float32Array, gw: number, gh: number): P[
     const l = Math.hypot(b.x - a.x, b.y - a.y) || 1;
     return [(b.x - a.x) / l, (b.y - a.y) / l];
   };
+  const isRing = (pts: P[]) => Math.hypot(pts[0].x - pts[pts.length - 1].x, pts[0].y - pts[pts.length - 1].y) < 2;
+
   let cur = paths;
   for (let round = 0; round < cur.length + 8; round++) {
-    let best: { i: number; j: number; gap: number; flipI: boolean; flipJ: boolean } | null = null;
+    let best: { i: number; j: number; score: number; flipI: boolean; flipJ: boolean } | null = null;
     for (let i = 0; i < cur.length; i++) {
       for (let j = 0; j < cur.length; j++) {
         if (i === j) continue;
         const A = cur[i], B = cur[j];
         if (A.length < 2 || B.length < 2) continue;
-        if (Math.hypot(A[0].x - A[A.length - 1].x, A[0].y - A[A.length - 1].y) < 2) continue; // Ring
-        for (const [a, flipI] of [[A[A.length - 1], false], [A[0], true]] as [P, boolean][]) {
-          for (const [b, flipJ] of [[B[0], false], [B[B.length - 1], true]] as [P, boolean][]) {
+        if (isRing(A)) continue;                       // Ring: hat kein offenes Ende
+        for (const flipI of [false, true]) {
+          const a = flipI ? A[0] : A[A.length - 1];
+          const u = flipI ? dir(A[1], A[0]) : dir(A[A.length - 2], A[A.length - 1]);
+          const d = sampleD(dist, gw, gh, a.x, a.y);
+          const lim = Math.max(3, 1.5 * d);
+          // Anschluss am Anfang oder am Ende von B – der nächste Punkt entscheidet
+          for (const flipJ of [false, true]) {
+            const b = flipJ ? B[B.length - 1] : B[0];
             const gap = Math.hypot(b.x - a.x, b.y - a.y);
-            const lim = Math.max(3, 2 * sampleD(dist, gw, gh, a.x, a.y));
             if (gap > lim) continue;
-            const [cx, cy] = dir(a, b);
-            const [ux, uy] = flipI ? dir(A[1], A[0]) : dir(A[A.length - 2], A[A.length - 1]);
-            const [vx, vy] = flipJ ? dir(B[B.length - 1], B[B.length - 2]) : dir(B[1], B[0]);
-            if (ux * cx + uy * cy < 0 || vx * cx + vy * cy < 0) continue;   // kein Rückwärtsgang
+            // „in der Mitte“ ansetzen wäre erlaubt, zerteilt B aber – nur am Rand erlaubt
+            let near = 0;
+            for (let k = 0; k < B.length; k++) {
+              const g = Math.hypot(B[k].x - a.x, B[k].y - a.y);
+              if (g < gap) near++;
+            }
+            if (near > TRIM) continue;
+            const v = flipJ ? dir(B[B.length - 1], B[Math.max(0, B.length - 6)]) : dir(B[0], B[Math.min(B.length - 1, 5)]);
+            const al = u[0] * v[0] + u[1] * v[1];
+            if (al < -0.2) continue;                   // kein Rückwärtsgang
+            if (gap > 3) {                             // längere Verbindung muss gerade weiterlaufen
+              const c = dir(a, b);
+              if (u[0] * c[0] + u[1] * c[1] < 0.2 || c[0] * v[0] + c[1] * v[1] < 0.2) continue;
+            }
             if (!inside(a, b)) continue;
-            if (!best || gap < best.gap) best = { i, j, gap, flipI, flipJ };
+            const score = gap / Math.max(0.25, al);
+            if (!best || score < best.score) best = { i, j, score, flipI, flipJ };
           }
         }
       }

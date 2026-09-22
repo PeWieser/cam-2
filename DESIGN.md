@@ -74,24 +74,30 @@ Wähler im Header („Modus“ links neben Undo/Redo). Die Wahl wird im Browser 
 
   | Schritt | Was passiert |
   | --- | --- |
-  | Gruppieren | Konturen mit berührender Bounding-Box kommen gemeinsam in ein Raster – Auflösung bleibt auch bei vielen kleinen Zeichen hoch |
-  | Rastern | Even-Odd-Scanline, Auflösung aus Toleranz **und** geschätzter Strichbreite (2·Fläche/Umfang): mindestens ~8 Pixel über die Breite |
+  | Regionen | **jede Kontur bildet mit den in ihr liegenden Konturen ihre eigene Region** (Buchstabe „O“: Außenkontur + Zähler = Ring). Eine große Fläche kann die Mittellinie eines darin liegenden Strichs nicht mehr verfälschen |
+  | Probe | grobes Raster (220 px) + Distanztransformation: ist der größte Innenkreis klein gegen die Ausdehnung (≤ 30 % der Diagonale), ist die Form ein Strich – sonst eine **Fläche**, die entlang ihrer Kontur graviert wird. Die teure Feinberechnung entfällt dann ganz |
+  | Rastern | Even-Odd-Scanline je Region, Auflösung aus Toleranz **und** geschätzter Strichbreite (2·Fläche/Umfang): mindestens ~8 Pixel über die Breite |
   | EDT | exakte euklidische Distanztransformation (Felzenszwalb, O(n)) – Abstand jedes Pixels zum Rand, bilinear auswertbar |
   | Startpunkte | lokale Maxima der 8er-Nachbarschaft, zusätzlich Krümmung quer zum Grat (Hesse-Matrix) – nur so wird aus der Rastertreppe kein zweiter Grat |
-  | Lauf | von dort beidseitig in 0,7-Pixel-Schritten; die Gratrichtung ist der Eigenvektor zum *größeren* Eigenwert der Hesse-Matrix, mit Trägheit (65 %) – an Gabelungen läuft der Strich geradeaus weiter |
+  | Lauf | von dort beidseitig in 0,7-Pixel-Schritten; die Gratrichtung ist der Eigenvektor zum *größeren* Eigenwert der Hesse-Matrix, mit Trägheit (65 %). Auf einem Plateau (breite Kreuzungsbereiche) ist die Gratrichtung Unsinn – dort läuft der Strich geradeaus weiter, bis wieder ein Grat da ist |
   | Mitte | jeder Punkt wird über den lokalen Querschnitt (beide Ränder aus der EDT, subpixel-genau) auf die Mitte gesetzt – das nimmt die Rastertreppe heraus |
+  | Verlängern | die mediale Achse biegt am Strichende in die Ecken ab und endet schon eine halbe Strichbreite vor dem Ende. Der Lauf wird deshalb **geradeaus bis kurz vor den Rand verlängert** – Richtung aus den letzten Schritten, nicht aus der letzten Gratrichtung |
   | Verbinden | Pfade, die an einer Gabelung auseinandergefallen sind, werden wieder zusammengesetzt – aber nur, wenn der Verbindungsschnitt im Bauteil liegt |
+  | Dubletten | Stücke, die fast ganz auf einem anderen liegen (der Grat springt an Gabelungen leicht zur Seite), werden verworfen – sonst fährt der Fräser zweimal über dieselbe Stelle |
 
 - Ergebnis (20 mm langer Strich, 0,6 mm breit, Toleranz 0,03 mm):
 
   | Fall | alt | neu |
   | --- | --- | --- |
-  | waagerecht | 1 Stück, 0,0150 mm | 1 Stück, 0,0447 mm |
-  | 30° gedreht | **80 Stück**, 0,1335 mm | **1 Stück**, 0,0113 mm |
-  | 45° gedreht | **0 Stück** (nichts übrig) | 1 Stück, 0,0000 mm |
-  | Kreisbogen r=10 | 8 Stück, 0,0886 mm | 1 Stück, 0,0129 mm |
+  | waagerecht | 1 Stück, 19,49 mm lang | 1 Stück, **19,97 mm** (fast die volle Länge) |
+  | 30° gedreht | **80 Stück**, 0,1335 mm | **1 Stück**, 19,96 mm |
+  | 45° gedreht | **0 Stück** (nichts übrig) | 1 Stück, 19,95 mm |
+  | Kreisbogen r=10 | 8 Stück, 0,0886 mm | 1 Stück, 33,84 mm |
+  | Ring r=8, 0,8 mm breit | zerstückelt | **1 geschlossener Zug**, 50,19 mm (ideal 50,27) |
 
-  Ein „H“ (echte Außenkontur) ergibt 3 Züge – zwei Senkrechte und der Querbalken, jeder in einem Stück.
+  Ein „H“ (echte Außenkontur) ergibt 3–4 Züge: zwei Senkrechte über die volle Höhe, der Querbalken und der Übergang an den Kreuzungen.
+- Befund: Bei einer Platte mit **vertiefter** Schrift liegt der Buchstabe als Loch im Plattenrand. Alle Konturen gemeinsam gerastert ergab das ein Skelett, das **außen um die Buchstaben herum** lief statt durch sie hindurch – mit 210 mm Weg für zwei Zeichen. Maßnahme: die Regionenregel oben – jede Kontur rechnet für sich, der Plattenrand wird als Fläche erkannt und entlang seines Umrisses graviert.
 - Befund: Der Kopf hob mitten im Strich ab, weil jedes Stück neu angefahren wurde. Maßnahme: erst die Geometrie heilen (ein Strich = ein Pfad), zusätzlich verbindet der Werkzeugweg zwei Gravurstücke unter 0,3 mm Abstand **ohne** Abheben (`LINK_GAP` in `src/lib/toolpath.ts`).
 - Befund: Die Mittellinie war erst nach „Berechnen“ sichtbar. Maßnahme: **Vorschau direkt bei der Wahl** – `centerlinePaths()` läuft im Schritt „Bearbeitung“ mit und zeichnet die Linien zyan (`#22d3ee`) in die Bühne; die Legende bekommt einen Eintrag, der berechnete Weg verdeckt die Vorschau. Gerechnet wird zurückgestellt (`useDeferredValue`), damit Regler beim Ziehen flüssig bleiben.
+- `computeCenterlines` liefert je Kontur ein Stück: entweder eine echte Mittellinie (`centerline: true`) oder – bei zu breiter Form – die Kontur selbst (`centerline: false`). Die Vorschau zeigt nur die Mittellinien, der Werkzeugweg nimmt beides. So geht keine markierte Linie verloren.
 - Vorschau und Werkzeugweg nutzen dieselbe Funktion (`centerlinePaths`), getrennt je Schnittebene – was zyan erscheint, wird auch gefräst. Mehrere Ebenen werden nicht mehr zu einem Raster verschmolzen.

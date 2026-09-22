@@ -64,20 +64,31 @@ export function originPoint(om: OrientedMesh, originXY: OriginXY): Vec2 {
 
 export const opOf = (s: Settings, id: number): Op => s.ops[String(id)] ?? 'engrave';
 
+/** Ein Stück der Mittellinien-Vorschau bzw. des Gravurwegs. */
+export type CenterlinePath = {
+  z: number;
+  pts: Vec2[];
+  /** false = Form ist zu breit für eine Mittellinie, `pts` ist dann die Kontur selbst */
+  centerline: boolean;
+};
+
 /**
  * Mittellinien der Gravurkonturen, getrennt je Schnittebene. Vorschau in der
- * Ansicht und Werkzeugweg nutten dieselbe Quelle – was angezeigt wird, wird
- * auch gefräst.
+ * Ansicht und Werkzeugweg nutzen dieselbe Quelle – was angezeigt wird, wird
+ * auch gefräst. Zu breite Formen (z. B. die Plattenkante) kommen als ihre
+ * eigene Kontur zurück und werden damit wie bei „Kontur“ graviert.
  */
-export function centerlinePaths(contours: Contour[], tolerance: number): { z: number; pts: Vec2[] }[] {
+export function centerlinePaths(contours: Contour[], tolerance: number): CenterlinePath[] {
   const byZ = new Map<number, Contour[]>();
   for (const c of contours) {
     if (!c.closed) continue;
     const a = byZ.get(c.z);
     if (a) a.push(c); else byZ.set(c.z, [c]);
   }
-  const out: { z: number; pts: Vec2[] }[] = [];
-  for (const [z, cs] of byZ) for (const pts of computeCenterlines(cs, tolerance)) out.push({ z, pts });
+  const out: CenterlinePath[] = [];
+  for (const [z, cs] of byZ) {
+    for (const piece of computeCenterlines(cs, tolerance)) out.push({ z, pts: piece.pts, centerline: piece.centerline });
+  }
   return out;
 }
 
@@ -113,7 +124,11 @@ export function computeToolpath(om: OrientedMesh, contours: Contour[], s: Settin
   const eng = byOp('engrave');
   if (s.engraveMode === 'centerline') {
     for (const l of centerlinePaths(eng, s.tolerance)) {
-      if (pathLength(l.pts, false) >= s.minLength) paths.push({ pts: l.pts, closed: false, op: 'engrave', depth: s.engraveDepth, tabs: false, order: 0 });
+      // Zu breite Formen kommen als geschlossene Kontur zurück (wie bei „Kontur“)
+      const closed = !l.centerline;
+      if (pathLength(l.pts, closed) >= s.minLength) {
+        paths.push({ pts: l.pts, closed, op: 'engrave', depth: s.engraveDepth, tabs: false, order: 0 });
+      }
     }
     for (const c of eng.filter((c) => !c.closed)) paths.push({ pts: c.pts, closed: false, op: 'engrave', depth: s.engraveDepth, tabs: false, order: 0 });
   } else {

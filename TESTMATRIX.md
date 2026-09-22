@@ -103,23 +103,30 @@ Legende: ✅ funktioniert · 🔧 in dieser Runde ergänzt · ⚠️ mit Einschr
 
 | # | Szenario | Status | Anmerkung |
 |---|---|---|---|
-| H1 | Gerader Strich, 0,6 mm breit | ✅ | 1 Zug, Abweichung < 0,05 mm, endet kurz vor der Kappe (halbe Strichbreite) |
-| H2 | Strich 30° gedreht | ✅ | 1 Zug (vorher 80), Abweichung 0,011 mm |
-| H3 | Strich 45° gedreht | ✅ | 1 Zug (vorher gar nichts mehr übrig) |
-| H4 | Strich 5° gedreht (fast waagerecht) | ✅ | 1 Zug, Abweichung 0,014 mm |
+| H1 | Gerader Strich, 0,6 mm breit | ✅ | 1 Zug, 19,97 mm von 20 mm, Endpunkt 0,02 mm vor der Kappe |
+| H2 | Strich 30° gedreht | ✅ | 1 Zug (vorher 80), 19,96 mm |
+| H3 | Strich 45° gedreht | ✅ | 1 Zug (vorher gar nichts mehr übrig), 19,95 mm |
+| H4 | Strich 5° gedreht (fast waagerecht) | ✅ | 1 Zug |
 | H5 | Senkrechter Strich | ✅ | 1 Zug |
-| H6 | Kreisbogen (r = 10 mm, 90°) | ✅ | 1 Zug, Abweichung 0,013 mm |
-| H7 | „H“ als echte Außenkontur | ✅ | 3 Züge: zwei Senkrechte, ein Querbalken; 3 Abhebungen statt einer je Stückchen |
-| H8 | „L“ (Winkel) | ✅ | 1 Zug bei Toleranz 0,02 mm, 2 bei 0,05 mm (Lücke 0,14 mm) |
-| H9 | „O“ als Ring (Außen- + Innenkontur) | ✅ | 1 geschlossener Zug, Länge 20,7 mm (ideal 20,73) |
-| H10 | Drei sehr dünne Striche (0,15 mm) | ✅ | 3 Züge, Länge 44,7 mm (ideal 45) |
+| H6 | Kreisbogen (r = 10 mm, 200°) | ✅ | 1 Zug, 33,84 mm |
+| H7 | „H“ als echte Außenkontur | ✅ | 4 Züge: zwei Senkrechte über die volle Höhe (0,02 – 7,99 mm), Querbalken, Kreuzungsübergang |
+| H8 | „L“ (Winkel) | ✅ | 2 Züge, 16,8 mm; Ecke bleibt rund, kein Sprung |
+| H9 | „O“ als Ring (Außen- + Innenkontur) | ✅ | 1 geschlossener Zug, Länge 50,19 mm (ideal 50,27) |
+| H10 | Drei sehr dünne Striche (0,15 mm) | ✅ | 3 Züge, Länge 44,96 mm (ideal 45) |
 | H11 | Sehr feiner Strich (0,2 mm) bei Toleranz 0,2 mm | ✅ | Auflösung wird selbstständig verfeinert (≈ 8 Pixel über die Breite) |
-| H12 | Breiter Balken (4 mm) | 🔧 | 1 Zug, endet ~1,9 mm vor der Kappe (mediale Achse endet dort) |
-| H13 | Gefüllte Fläche 100 × 60 mm | ✅ | 1 Zug mittig, < 100 ms |
-| H14 | 120 Zeichen (480 Striche) | ✅ | ~200 ms, ein Zug je Strich |
+| H12 | Breiter Balken (4 mm) | ✅ | 1 Zug, 19,97 mm – läuft jetzt bis an die Kappe (vorher 1,9 mm zu kurz) |
+| H13 | Gefüllte Fläche 100 × 60 mm | ✅ | **keine** Mittellinie mehr, wird entlang des Umrisses graviert |
+| H14 | 120 Zeichen (480 Striche) | ✅ | ~170 ms, ein Zug je Strich |
 | H15 | Mehrere Schnittebenen, Formen übereinander | ✅ | je Ebene eigenes Raster, keine Vermischung |
 | H16 | Vorschau: „Mittellinie“ wählen | ✅ | Linien erscheinen sofort zyan in der Bühne, knapp über der Ebene |
 | H17 | Vorschau bei geändertem Toleranz-Regler | ✅ | rechnet zurückgestellt nach, Bedienung bleibt flüssig |
 | H18 | Vorschau nach „Berechnen“ | ✅ | berechneter Weg verdeckt die Vorschau, Legendeneintrag wechselt |
 | H19 | Konturen auf „Aus“ oder „Tasche“ gesetzt | ✅ | erscheinen nicht in der Vorschau |
 | H20 | Zwei Gravurstücke mit < 0,3 mm Abstand | ✅ | werden ohne Abheben verbunden (`LINK_GAP`) |
+| H21 | **Platte mit vertiefter Schrift („10“)** | ✅ | Mittellinien liegen **in** den Buchstaben, nicht mehr außen herum; 9 Züge statt 210 mm Skelett um die Zeichen |
+| H22 | Plattenrand allein (100 × 60 mm, eine Kontur) | ✅ | als Fläche erkannt → Kontur graviert, kein Skelett |
+| H23 | Gefülltes Quadrat 20 × 20, Kreis r=10 | ✅ | als Fläche erkannt → Kontur graviert |
+| H24 | Rahmen 100 × 60 mm, 5 mm Rand | ✅ | 7 Züge, 326 mm – Umlauf mittig im Rand plus Eckenspitzen |
+| H25 | Platte mit drei rechteckigen Löchern | ✅ | je Loch ein Zug mittig (3 × 20 mm), Platte als Kontur |
+| H26 | Buchstaben „A“–„Z“ (DejaVu, 10 mm) | ✅ | 139 Züge statt 206 (alt), kein Punkt außerhalb der Form |
+| H27 | Toleranz 0,02 / 0,05 / 0,1 mm | ✅ | alle Fälle innen, Längen stabil (± 1 %) |
