@@ -1,7 +1,8 @@
-name: Build WebApp
+name: Build WebApp and LittleFS
 
 on:
   workflow_dispatch:
+
   push:
     branches:
       - main
@@ -11,8 +12,16 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
+      # ---------------------------------------------------
+      # Repository laden
+      # ---------------------------------------------------
+
+      - name: Checkout repository
         uses: actions/checkout@v4
+
+      # ---------------------------------------------------
+      # Node.js einrichten
+      # ---------------------------------------------------
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -20,15 +29,243 @@ jobs:
           node-version: 22
           cache: npm
 
+      # ---------------------------------------------------
+      # React-/Vite-App bauen
+      # ---------------------------------------------------
+
       - name: Install dependencies
         run: npm ci
 
       - name: Build Vite app
         run: npm run build
 
+      # ---------------------------------------------------
+      # Normalen dist-Ordner bereitstellen
+      # ---------------------------------------------------
+
       - name: Upload dist artifact
         uses: actions/upload-artifact@v4
         with:
           name: webapp-dist
-          path: dist
+          path: dist/
           retention-days: 30
+          if-no-files-found: error
+
+      # ---------------------------------------------------
+      # Python und PlatformIO installieren
+      # ---------------------------------------------------
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install PlatformIO
+        run: python -m pip install platformio
+
+      # ---------------------------------------------------
+      # Temporäres PlatformIO-Projekt vorbereiten
+      # ---------------------------------------------------
+
+      - name: Prepare LittleFS build directory
+        shell: bash
+        run: |
+          set -e
+
+          mkdir -p littlefs-build/data
+          mkdir -p littlefs-build/src
+
+          cp -R dist/. littlefs-build/data/
+
+          cat > littlefs-build/src/main.cpp <<'EOF'
+          #include <Arduino.h>
+
+          void setup()
+          {
+          }
+
+          void loop()
+          {
+          }
+          EOF
+
+          cat > littlefs-build/platformio.ini <<'EOF'
+          [env:seeed_xiao_esp32c6]
+          platform = https://github.com/Seeed-Studio/platform-seeedboards.git
+          board = seeed-xiao-esp32-c6
+          framework = arduino
+
+          board_build.filesystem = littlefs
+
+          platform_packages =
+              platformio/tool-mklittlefs@1.203.210628
+          EOF
+
+      # ---------------------------------------------------
+      # Dateien und Konfiguration kontrollieren
+      # ---------------------------------------------------
+
+      - name: Validate build input
+        shell: bash
+        run: |
+          set -e
+
+          echo "Generierte platformio.ini:"
+          echo "----------------------------------------"
+          cat littlefs-build/platformio.ini
+          echo "----------------------------------------"
+
+          echo
+          echo "Folgende Dateien werden in LittleFS gepackt:"
+          find littlefs-build/data -type f -printf "%p  %s Bytes\n"
+
+          echo
+          echo "Gesamtgröße:"
+          du -sh littlefs-build/data
+
+          if [ ! -f littlefs-build/data/index.html ]; then
+            echo "FEHLER: dist/index.html wurde nicht gefunden."
+            exit 1
+          fi
+
+      # ---------------------------------------------------
+      # mklittlefs installieren
+      # ---------------------------------------------------
+
+      - name: Install mklittlefs
+        working-directory: littlefs-build
+        shell: bash
+        run: |
+          set -e
+
+          pio pkg install \
+            --global \
+            --tool "platformio/tool-mklittlefs@1.203.210628"
+
+      # ---------------------------------------------------
+      # mklittlefs in PATH aufnehmen
+      # ---------------------------------------------------
+
+      - name: Add mklittlefs to PATH
+        shell: bash
+        run: |
+          set -e
+
+          echo "Suche mklittlefs ..."
+
+          MKLITTLEFS_PATH="$(
+            find "$HOME/.platformio" \
+              -type f \
+              -name "mklittlefs" \
+              -print \
+              -quit
+          )"
+
+          if [ -z "$MKLITTLEFS_PATH" ]; then
+            echo "FEHLER: mklittlefs wurde nicht gefunden."
+            echo
+            echo "PlatformIO-Paketverzeichnis:"
+            find "$HOME/.platformio/packages" \
+              -maxdepth 3 \
+              -type f \
+              -print || true
+            exit 1
+          fi
+
+          echo "mklittlefs gefunden:"
+          echo "$MKLITTLEFS_PATH"
+
+          chmod +x "$MKLITTLEFS_PATH"
+
+          MKLITTLEFS_DIRECTORY="$(dirname "$MKLITTLEFS_PATH")"
+
+          echo "$MKLITTLEFS_DIRECTORY" >> "$GITHUB_PATH"
+
+          echo "MKLITTLEFS_PATH=$MKLITTLEFS_PATH" >> "$GITHUB_ENV"
+
+      # ---------------------------------------------------
+      # PATH und Programm prüfen
+      # ---------------------------------------------------
+
+      - name: Verify mklittlefs
+        shell: bash
+        run: |
+          set -e
+
+          echo "PATH:"
+          echo "$PATH"
+
+          echo
+          echo "Gefundener Befehl:"
+          command -v mklittlefs
+
+          echo
+          echo "Dateiinformationen:"
+          ls -l "$MKLITTLEFS_PATH"
+
+          echo
+          echo "mklittlefs-Test:"
+          mklittlefs --version || mklittlefs --help || true
+
+      # ---------------------------------------------------
+      # LittleFS-Abbild bauen
+      # ---------------------------------------------------
+
+      - name: Build LittleFS image
+        working-directory: littlefs-build
+        shell: bash
+        run: |
+          set -e
+
+          echo "mklittlefs vor dem Build:"
+          command -v mklittlefs
+
+          pio run --target buildfs
+
+      # ---------------------------------------------------
+      # Ergebnis suchen und umbenennen
+      # ---------------------------------------------------
+
+      - name: Prepare LittleFS artifact
+        shell: bash
+        run: |
+          set -e
+
+          SOURCE_FILE="$(
+            find littlefs-build/.pio/build \
+              -type f \
+              -name "littlefs.bin" \
+              -print \
+              -quit
+          )"
+
+          TARGET_FILE="CAM-System-littlefs.bin"
+
+          if [ -z "$SOURCE_FILE" ]; then
+            echo "FEHLER: LittleFS-Abbild wurde nicht gefunden."
+            echo
+            echo "Vorhandene BIN-Dateien:"
+            find littlefs-build -type f -name "*.bin" -print || true
+            exit 1
+          fi
+
+          echo "Gefundenes LittleFS-Abbild:"
+          echo "$SOURCE_FILE"
+
+          cp "$SOURCE_FILE" "$TARGET_FILE"
+
+          echo
+          echo "Bereitgestelltes LittleFS-Abbild:"
+          ls -lh "$TARGET_FILE"
+
+      # ---------------------------------------------------
+      # LittleFS-BIN als Artefakt hochladen
+      # ---------------------------------------------------
+
+      - name: Upload LittleFS artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: CAM-System-LittleFS
+          path: CAM-System-littlefs.bin
+          retention-days: 30
+          if-no-files-found: error
