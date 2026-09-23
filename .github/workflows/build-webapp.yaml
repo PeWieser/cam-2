@@ -88,8 +88,8 @@ jobs:
 
           cat > littlefs-build/platformio.ini <<'EOF'
           [env:seeed_xiao_esp32c6]
-          platform = espressif32
-          board = seeed_xiao_esp32c6
+          platform = https://github.com/Seeed-Studio/platform-seeedboards.git
+          board = seeed_xiao_esp32-c6
           framework = arduino
 
           board_build.filesystem = littlefs
