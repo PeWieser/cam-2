@@ -1,7 +1,8 @@
-name: Build WebApp
+name: Build WebApp and LittleFS
 
 on:
   workflow_dispatch:
+
   push:
     branches:
       - main
@@ -11,8 +12,16 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
+      # ---------------------------------------------------
+      # Repository laden
+      # ---------------------------------------------------
+
+      - name: Checkout repository
         uses: actions/checkout@v4
+
+      # ---------------------------------------------------
+      # Node.js einrichten
+      # ---------------------------------------------------
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -20,15 +29,110 @@ jobs:
           node-version: 22
           cache: npm
 
+      # ---------------------------------------------------
+      # React-/Vite-App bauen
+      # ---------------------------------------------------
+
       - name: Install dependencies
         run: npm ci
 
       - name: Build Vite app
         run: npm run build
 
+      # ---------------------------------------------------
+      # Normalen dist-Ordner als ZIP-Artefakt bereitstellen
+      # ---------------------------------------------------
+
       - name: Upload dist artifact
         uses: actions/upload-artifact@v4
         with:
           name: webapp-dist
-          path: dist
+          path: dist/
           retention-days: 30
+
+      # ---------------------------------------------------
+      # PlatformIO installieren
+      # ---------------------------------------------------
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install PlatformIO
+        run: pip install platformio
+
+      # ---------------------------------------------------
+      # Temporäres PlatformIO-Projekt vorbereiten
+      # ---------------------------------------------------
+
+      - name: Prepare LittleFS build directory
+        shell: bash
+        run: |
+          mkdir -p littlefs-build/data
+          mkdir -p littlefs-build/src
+
+          cp -R dist/. littlefs-build/data/
+
+          cat > littlefs-build/src/main.cpp <<'EOF'
+          #include <Arduino.h>
+
+          void setup()
+          {
+          }
+
+          void loop()
+          {
+          }
+          EOF
+
+          cat > littlefs-build/platformio.ini <<'EOF'
+          [env:seeed_xiao_esp32c6]
+          platform = espressif32
+          board = seeed_xiao_esp32c6
+          framework = arduino
+
+          board_build.filesystem = littlefs
+          EOF
+
+      # ---------------------------------------------------
+      # Inhalt vor dem Erstellen prüfen
+      # ---------------------------------------------------
+
+      - name: Show LittleFS files
+        run: |
+          echo "Folgende Dateien werden in LittleFS gepackt:"
+          find littlefs-build/data -type f -printf "%p  %s Bytes\n"
+
+      # ---------------------------------------------------
+      # LittleFS-Image erstellen
+      # ---------------------------------------------------
+
+      - name: Build LittleFS image
+        working-directory: littlefs-build
+        run: pio run --target buildfs
+
+      # ---------------------------------------------------
+      # Ergebnis eindeutig benennen
+      # ---------------------------------------------------
+
+      - name: Prepare LittleFS artifact
+        shell: bash
+        run: |
+          cp \
+            littlefs-build/.pio/build/seeed_xiao_esp32c6/littlefs.bin \
+            CAM-System-littlefs.bin
+
+          ls -lh CAM-System-littlefs.bin
+
+      # ---------------------------------------------------
+      # littlefs.bin als GitHub-Artefakt bereitstellen
+      # ---------------------------------------------------
+
+      - name: Upload LittleFS artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: CAM-System-LittleFS
+          path: CAM-System-littlefs.bin
+          retention-days: 30
+          if-no-files-found: error
