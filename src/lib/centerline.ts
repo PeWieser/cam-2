@@ -77,9 +77,12 @@ export function computeCenterlines(contours: Contour[], tolerance: number, maxWi
     const dist = edt2d(r.g, r.gw, r.gh);
     // Ecken der Region in Rasterkoordinaten – daran werden die Häkchen erkannt
     const verts = cornerVerts(region, r);
+    // typische halbe Strichbreite der Region in Pixeln – daran messen sich alle
+    // Größen, die sonst in Pixeln steckten (u ≈ 1,5 bei grobem Raster, ≈ 40 bei feinem)
+    const u = Math.max(1.5, strokeWidth(region, cs[i].depth) / (2 * r.res));
     const tol = Math.max(tolerance * 0.5, r.res * 0.5);
     let found = false;
-    for (const raw of traceRidges(r, dist, verts)) {
+    for (const raw of traceRidges(r, dist, verts, u)) {
       const m = miter(raw, dist, r.gw, r.gh);
       const pts = m.map((p) => ({ x: r.ox + p.x * r.res, y: r.oy + p.y * r.res }));
       const s = simplify(smooth(pts, SMOOTH), tol, false);
@@ -298,18 +301,33 @@ function edt2d(g: Uint8Array, gw: number, gh: number): Float32Array {
 
 type P = { x: number; y: number };   // kontinuierliche Pixelkoordinaten
 
-const STEP = 0.7;      // Schrittweite in Pixeln
-const DMIN = 0.6;      // minimaler Randabstand in Pixeln (darunter ist Schluss)
-const LOOP_EPS = 1.4;  // Abstand, ab dem ein Pfad als geschlossen gilt
-const TAPER = 0.35;    // Anteil: um soviel darf der Randabstand unter das lokale Maß fallen
-const WIN = 24;        // Schritte im Fenster für das lokale Maß
-const PERSIST = 3;     // so viele Schritte muss der Abstand gefallen sein
-const SEED_MIN = 0.9;  // px: minimaler Randabstand für einen Startpunkt
+/**
+ * Alle Größen, die am Raster hängen, werden am örtlichen Randabstand d
+ * (halbe Strichbreite, gerechnet in Pixeln) gemessen – nicht in Pixeln.
+ * Sonst hängt das Ergebnis davon ab, wie fein das Raster ist, und die
+ * Rasterweite richtet sich nach Baugröße (MAX_SIDE), Toleranz und
+ * geschätzter Strichbreite: dieselbe Form käme bei 25 mm und bei 200 mm
+ * heraus, als wäre sie eine andere.
+ */
+const STEP_MIN = 0.5;     // px: nie kleiner schreiten (zu viele Schritte)
+const STEP_MAX = 4;       // px: nie größer schreiten (der Grat wird sonst eckig)
+const STEP_REL = 0.22;    // Schrittweite als Anteil des örtlichen Randabstands
+const HESS_REL = 0.25;    // Stützweite der Hesse-Matrix als Anteil von d …
+const HESS_MAX = 8;       // … px, höchstens (sonst reicht sie über den Strich)
+const DMIN = 0.6;         // px: minimaler Randabstand (darunter ist Schluss)
+const TAPER = 0.35;       // Anteil: um soviel darf der Randabstand unter das lokale Maß fallen
+const WIN_STEPS = 16;     // Schritte im Fenster für das lokale Maß
+const PERSIST = 3;        // so viele Schritte muss der Abstand gefallen sein
+const SEED_MIN_REL = 0.15; // Anteil von u: minimaler Randabstand für einen Startpunkt
+const SEED_GAP = 0.6;     // Anteil von d: Startpunkte, die näher beieinander liegen, sind einer
+const SLIVER_REL = 0.12;  // Anteil von u: Stücke, die im Mittel näher am Rand liegen, sind Reste
+const CLOSE_EPS = 0.3;    // Anteil von u: ab diesem Abstand der Enden gilt ein Stück als geschlossen
+const LOOP_STEPS = 8;     // frühestens nach so vielen Schritten darf das greifen
+const STEP_EXT = 0.08;    // Schrittweite beim Verlängern, als Anteil von d
 const SEED_RIDGE = -0.4; // Krümmung quer zum Grat: ab hier ist ein Punkt Startpunkt
 const INERTIA = 0.65;  // Anteil der bisherigen Richtung (Trägheit an Gabelungen)
-const SLIVER = 1.1;    // px: Stücke, die im Mittel näher als das am Rand liegen, sind Reste
 const STUB = 0.5;      // Stücke, die kürzer als STUB·2·Breite sind, sind Reste einer Gabelung
-const EXT_WIN = 10;    // Punkte, über die die Richtung für die Verlängerung gemittelt wird
+const EXT_WIN = 10;     // mindestens so viele Punkte für die Richtung beim Verlängern
 const RIDGE_MIN = -0.35; // Krümmung quer zum Grat: ab hier gilt die Richtung als Grat
 const PEAK_MAX = -0.6;   // Krümmung entlang des Grates: darunter ist es ein Gipfel (Gabelung)
 const PLATEAU = 10;    // Schritte ohne Grat, nach denen der Lauf abgebrochen wird
@@ -319,7 +337,7 @@ const SMOOTH_FADE = 0.35;  // rad: darüber nimmt die Glättung ab, ab ~46° gar
 const CORNER_MIN = 1.2;  // rad (~70°): spitzere Ecken sind eine Spitze – ihr Grat gehört zum Strich
 const CORNER_MAX = 2.5;  // rad (~145°): stumpfere Ecken werfen kein Häkchen
 const CORNER_TOL = 1.15; // Toleranz auf den theoretischen Abstand der Winkelhalbierenden
-const CORNER_LINK = 2.2; // Umweg über den Schnittpunkt, ab dem es keine Ecke ist (Vielfaches der Lücke)
+const CORNER_LINK = 2.8; // Umweg über den Schnittpunkt, ab dem es keine Ecke ist (Vielfaches der Lücke)
 const MITER_TURN = 0.9;  // rad (~52°): ab dieser Richtungsänderung wird die Ecke gegratet
 const MITER_MAX = 6;     // höchstens so viele Ecken pro Stück
 
@@ -340,9 +358,20 @@ function sampleD(dist: Float32Array, gw: number, gh: number, x: number, y: numbe
  * (2. Ableitung ≈ 0), quer dazu hat er einen Knick (2. Ableitung ≈ −2).
  * Die Gratrichtung ist also der Eigenvektor zum *größeren* Eigenwert.
  */
+/**
+ * Gratrichtung aus der Hesse-Matrix des Randabstands.
+ *
+ * Die Stützweite hängt am Randabstand: mit fester Weite (1 px) misst die
+ * Matrix die Krümmung auf Rasterebene, und ob die Stützstellen den Grat
+ * treffen, ist reiner Zufall – bei grobem Raster (wenige Pixel über die
+ * Breite) ständig nicht. Mit wachsendem h fällt das Rauschen der
+ * Unterabtastung (∼1/h²), das Signal nur mit 1/h. Damit die Zahlen bei
+ * jedem h dieselbe Bedeutung haben, wird mit h multipliziert: am Grat
+ * steht dann überall ≈ −2, unabhängig von Rasterweite und Strichbreite.
+ */
 function ridgeDir(dist: Float32Array, gw: number, gh: number, x: number, y: number): { rx: number; ry: number; lamA: number; lamB: number } | null {
   const d0 = sampleD(dist, gw, gh, x, y);
-  const h = 1;
+  const h = Math.max(1, Math.min(HESS_MAX, HESS_REL * d0));
   const dxp = sampleD(dist, gw, gh, x + h, y), dxm = sampleD(dist, gw, gh, x - h, y);
   const dyp = sampleD(dist, gw, gh, x, y + h), dym = sampleD(dist, gw, gh, x, y - h);
   const dpp = sampleD(dist, gw, gh, x + h, y + h), dpm = sampleD(dist, gw, gh, x + h, y - h);
@@ -360,7 +389,7 @@ function ridgeDir(dist: Float32Array, gw: number, gh: number, x: number, y: numb
   if (l < 1e-7) return null;
   // tr - det: Krümmung quer zum Grat (am Grat ≈ -2, auf der Flanke ≈ 0)
   // tr + det: Krümmung entlang des Grates (am Grat ≈ 0, an einer Gabelung ≈ -2)
-  return { rx: rx / l, ry: ry / l, lamA: tr - det, lamB: lam };
+  return { rx: rx / l, ry: ry / l, lamA: (tr - det) * h, lamB: lam * h };
 }
 
 /**
@@ -444,12 +473,15 @@ function offCenter(dist: Float32Array, gw: number, gh: number, p: P, dx: number,
  * wird; abgehende Äste werden später als eigener Pfad abgelaufen und enden an
  * der Kreuzung, sobald sie auf einen schon markierten Pfad treffen.
  */
-function traceRidges(r: Raster, dist: Float32Array, verts: Vert[]): P[][] {
+function traceRidges(r: Raster, dist: Float32Array, verts: Vert[], u: number): P[][] {
   const { gw, gh } = r;
   const visited = new Uint8Array(gw * gh);
-  const mark = (x: number, y: number) => {
+  // Radius in Pixeln: bei großen Schritten würden einzelne markierte Pixel
+  // Lücken lassen, durch die ein späterer Pfad quer hindurchläuft.
+  const rad = (step: number) => Math.max(1, Math.ceil(step / 2));
+  const mark = (x: number, y: number, r = 1) => {
     const ix = Math.floor(x), iy = Math.floor(y);
-    for (let j = -1; j <= 1; j++) for (let i = -1; i <= 1; i++) {
+    for (let j = -r; j <= r; j++) for (let i = -r; i <= r; i++) {
       const xx = ix + i, yy = iy + j;
       if (xx >= 0 && yy >= 0 && xx < gw && yy < gh) visited[yy * gw + xx] = 1;
     }
@@ -468,15 +500,40 @@ function traceRidges(r: Raster, dist: Float32Array, verts: Vert[]): P[][] {
     }
   };
   const NB = [-gw - 1, -gw, -gw + 1, 1, gw + 1, gw, gw - 1, -1];
-  const isVisited = (x: number, y: number) => {
+  /**
+   * Ring-Erkennung. Ein Lauf driftet auf gebogenem Grat um ein paar Pixel je
+   * Runde nach innen und trifft seinen Startpunkt deshalb nicht genau – er
+   * dreht sonst eine zweite Runde und der Weg wird zu lang. Geprüft wird
+   * deshalb, ob das Stück einem seiner *eigenen* früheren Punkte nahe kommt.
+   * Dazu ein Raster mit Stempel: jeder Lauf hat seine eigene Nummer, das
+   * Raster muss zwischen den Läufen nicht gelöscht werden.
+   */
+  const CELL = 8;
+  const sw = Math.ceil(gw / CELL), sh = Math.ceil(gh / CELL);
+  const selfHead = new Int32Array(sw * sh);
+  const selfAt = new Int32Array(sw * sh);
+  let stamp = 0;
+  const own: P[] = [];
+  const ownNext: number[] = [];      // verkettete Liste je Rasterzelle
+  const isVisited = (x: number, y: number, r = 1) => {
     const ix = Math.floor(x), iy = Math.floor(y);
-    return ix >= 0 && iy >= 0 && ix < gw && iy < gh ? visited[iy * gw + ix] === 1 : false;
+    for (let j = -r; j <= r; j++) for (let i = -r; i <= r; i++) {
+      const xx = ix + i, yy = iy + j;
+      if (xx >= 0 && yy >= 0 && xx < gw && yy < gh && visited[yy * gw + xx] === 1) return true;
+    }
+    return false;
   };
 
   // Startpunkte: Gratpunkte, zuerst die breitesten Stellen (Mitte eines
   // Strichs), damit der Lauf nicht an einer Eckenspitze beginnt, von der aus
   // der Grat schräg in die Ecke läuft.
   type Seed = { p: P; rx: number; ry: number; d: number };
+  const seedMin = Math.max(1, SEED_MIN_REL * u);
+  // Abstand der Enden, ab dem ein Stück als geschlossen (Ring) gilt. Nach
+  // oben durch die Schrittweite begrenzt (ein Ring schließt sich auf ~einen
+  // Schritt), nach unten durch den Randabstand (sonst wären bei grobem Raster
+  // zwei beliebige Enden schon „geschlossen“).
+  const closeEps = Math.max(2.5, Math.min(2 * STEP_MAX, CLOSE_EPS * u));
   const peaks: Seed[] = [];
   for (let y = 1; y < gh - 1; y++) {
     for (let x = 1; x < gw - 1; x++) {
@@ -484,13 +541,36 @@ function traceRidges(r: Raster, dist: Float32Array, verts: Vert[]): P[][] {
       const cx = x + 0.5, cy = y + 0.5;
       const d = dist[i];
       if (d < DMIN) continue;
-      if (d < SEED_MIN) continue;
+      if (d < seedMin) continue;
       const rd = ridgeDir(dist, gw, gh, cx, cy);
       if (!rd || rd.lamA > SEED_RIDGE) continue;           // kein echter Grat
       let isMax = true;
       for (let k = 0; k < 8; k++) if (dist[i + NB[k]] > d + 1e-6) { isMax = false; break; }
       if (isMax) peaks.push({ p: { x: cx, y: cy }, rx: rd.rx, ry: rd.ry, d });
     }
+  }
+  /**
+   * Startpunkte entdoppeln: auf einem flachen Grat ist sonst (wegen der
+   * Rasterung) alle paar Pixel ein eigener Startpunkt. Bei feinem Raster
+   * entsprechend öfter – das Ergebnis hinge an der Rasterweite.
+   */
+  // Breiteste Stelle zuerst: dort sitzt die Gabelung, von der aus der Strich
+  // in einem Zug in beide Richtungen abgelaufen wird – und beim Entdoppeln
+  // gewinnt die breitere Stelle.
+  peaks.sort((a, b) => b.d - a.d);
+  const taken = new Uint8Array(gw * gh);
+  const seeds: Seed[] = [];
+  for (const s of peaks) {
+    const gx = Math.floor(s.p.x), gy = Math.floor(s.p.y);
+    if (taken[gy * gw + gx]) continue;
+    const r = Math.min(40, SEED_GAP * s.d);
+    const ri = Math.ceil(r);
+    for (let j = -ri; j <= ri; j++) for (let i = -ri; i <= ri; i++) {
+      const xx = gx + i, yy = gy + j;
+      if (xx < 0 || yy < 0 || xx >= gw || yy >= gh) continue;
+      if (i * i + j * j <= r * r) taken[yy * gw + xx] = 1;
+    }
+    seeds.push(s);
   }
 
   /**
@@ -504,16 +584,19 @@ function traceRidges(r: Raster, dist: Float32Array, verts: Vert[]): P[][] {
    */
   const extend = (start: P, pts: P[], dirX: number, dirY: number): P => {
     let dx = dirX, dy = dirY;
-    const back = Math.min(pts.length - 1, EXT_WIN);
+    let shoulder: P = pts.length ? pts[pts.length - 1] : start;
+    if (pts.length < 4) { pts.length = 0; shoulder = start; }
+    const dEnd = sampleD(dist, gw, gh, shoulder.x, shoulder.y);
+    const step = Math.min(1.5, Math.max(0.35, STEP_EXT * dEnd));
+    // Fenster für die Richtung: ein ganzer Schenkel (1,2·d), nicht nur die
+    // letzten paar Punkte – sonst nimmt sie an einem gerade gekappten Häkchen
+    // dessen Richtung an und läuft wieder in die Ecke zurück.
+    const back = Math.min(pts.length - 1, Math.max(EXT_WIN, Math.round(1.2 * dEnd / step)));
     if (back >= 3) {
       const a = pts[pts.length - 1 - back], b = pts[pts.length - 1];
       const l = Math.hypot(b.x - a.x, b.y - a.y);
       if (l > 1e-6) { dx = (b.x - a.x) / l; dy = (b.y - a.y) / l; }
     }
-    let shoulder: P = pts.length ? pts[pts.length - 1] : start;
-    if (pts.length < 4) { pts.length = 0; shoulder = start; }
-    const dEnd = sampleD(dist, gw, gh, shoulder.x, shoulder.y);
-    const step = STEP / 2;
     const maxLen = Math.max(2, dEnd * 1.3 + 1.5);
     let px = shoulder.x, py = shoulder.y, len = 0;
     while (len < maxLen) {
@@ -540,11 +623,17 @@ function traceRidges(r: Raster, dist: Float32Array, verts: Vert[]): P[][] {
     let loop = false;
     let endStop = false;
     let flat = 0;                      // Schritte ohne Grat hintereinander
-    const win = new Float64Array(WIN);      // letzte Randabstände → lokales Maß
+    const win = new Float64Array(WIN_STEPS); // letzte Randabstände → lokales Maß
     let wi = 0, filled = 0;
     let dRef = 0;                           // größter Randabstand im Fenster
     let below = 0;                          // Schritte unter dem Maß
-    for (let step = 0; step < 200000; step++) {
+    let step = STEP_MIN;                    // Schrittweite, aus dem örtlichen Randabstand
+    own.length = 0;
+    ownNext.length = 0;
+    own.push({ x: p0.x, y: p0.y });
+    ownNext.push(-1);
+    const mine = ++stamp;
+    for (let n = 0; n < 200000; n++) {
       const rd = ridgeDir(dist, gw, gh, px, py);
       // Zwei Fälle, in denen die Gratrichtung nicht taugt:
       //  · Gipfel (lamB stark negativ): an einer Gabelung ist der Randabstand
@@ -571,14 +660,25 @@ function traceRidges(r: Raster, dist: Float32Array, verts: Vert[]): P[][] {
         endStop = true;
         break;
       }
-      let nx = px + ux * STEP, ny = py + uy * STEP;
-      const c = toCenter(dist, gw, gh, { x: nx, y: ny }, ux, uy);
+      // Schrittweite am örtlichen Randabstand: bei feinem Raster ist d groß,
+      // bei grobem klein – so bleibt der Lauf in beiden Fällen derselbe.
+      step = Math.min(STEP_MAX, Math.max(STEP_MIN, STEP_REL * sampleD(dist, gw, gh, px, py)));
+      let nx = px + ux * step, ny = py + uy * step;
+      // Der Querschnitt für die Korrektur auf die Mitte steht quer zur
+      // *Gratrichtung*, nicht quer zur Laufrichtung: die hinkt mit Trägheit
+      // hinterher, der Querschnitt kippt dadurch, und auf einem gebogenen
+      // Grat zieht das den Lauf bei jedem Schritt ein Stück nach innen – der
+      // Ring wird zur Spirale und schließt sich nicht mehr.
+      let qx = ux, qy = uy;
+      if (rd && rd.lamA < RIDGE_MIN) { qx = rd.rx; qy = rd.ry; }
+      if (qx * ux + qy * uy < 0) { qx = -qx; qy = -qy; }
+      const c = toCenter(dist, gw, gh, { x: nx, y: ny }, qx, qy);
       if (c) { nx = c.x; ny = c.y; }
       const d = sampleD(dist, gw, gh, nx, ny);
       // Bezug: größter Randabstand der letzten Schritte – ein kurzes Dippen
       // (Rasterrauheit, Gabelung) bricht den Lauf nicht ab, ein echtes
       // Strichende (ständig fallender Abstand) schon
-      win[wi] = d; wi = (wi + 1) % WIN; if (filled < WIN) filled++;
+      win[wi] = d; wi = (wi + 1) % WIN_STEPS; if (filled < WIN_STEPS) filled++;
       dRef = 0;
       for (let k = 0; k < filled; k++) if (win[k] > dRef) dRef = win[k];
       if (d < DMIN) { endStop = true; break; }
@@ -588,10 +688,38 @@ function traceRidges(r: Raster, dist: Float32Array, verts: Vert[]): P[][] {
       if (d < Math.max(DMIN * 1.5, dRef * (1 - TAPER))) {
         if (++below >= PERSIST) { for (let k = 0; k < PERSIST - 1; k++) pts.pop(); endStop = true; break; }
       } else below = 0;
-      if (isVisited(nx, ny)) break;                                   // trifft früheren Pfad
-      if (travelled > 4 && Math.hypot(nx - p0.x, ny - p0.y) < LOOP_EPS) { loop = true; break; }
+      if (isVisited(nx, ny, rad(step))) break;                         // trifft früheren Pfad
+      // Kommt das Stück einem eigenen früheren Punkt nahe, ist der Strich ein
+      // Ring – dann ist der Weg fertig.
+      if (travelled > LOOP_STEPS * step) {
+        const ci = Math.floor(nx / CELL), cj = Math.floor(ny / CELL);
+        for (let j = -1; j <= 1 && !loop; j++) {
+          for (let i = -1; i <= 1; i++) {
+            const xx = ci + i, yy = cj + j;
+            if (xx < 0 || yy < 0 || xx >= sw || yy >= sh) continue;
+            const k = yy * sw + xx;
+            if (selfAt[k] !== mine) continue;
+            for (let idx = selfHead[k]; idx >= 0; idx = ownNext[idx]) {
+              if (idx > own.length - LOOP_STEPS) continue;
+              const o = own[idx];
+              if (Math.hypot(o.x - nx, o.y - ny) < closeEps) { loop = true; break; }
+            }
+            if (loop) break;
+          }
+        }
+        if (loop) break;
+      }
       pts.push({ x: nx, y: ny });
-      travelled += STEP;
+      own.push({ x: nx, y: ny });
+      {
+        const k = Math.floor(ny / CELL) * sw + Math.floor(nx / CELL);
+        if (k >= 0 && k < sw * sh) {
+          if (selfAt[k] !== mine) { selfHead[k] = -1; selfAt[k] = mine; }
+          ownNext.push(selfHead[k]);
+          selfHead[k] = own.length - 1;
+        } else ownNext.push(-1);
+      }
+      travelled += step;
       px = nx; py = ny;
     }
     const shoulder = endStop && !loop ? extend(p0, pts, dx0, dy0) : (pts.length ? pts[pts.length - 1] : p0);
@@ -599,12 +727,9 @@ function traceRidges(r: Raster, dist: Float32Array, verts: Vert[]): P[][] {
   };
 
   const paths: P[][] = [];
-  // Breiteste Stelle zuerst: dort sitzt die Gabelung, von der aus der Strich
-  // in einem Zug in beide Richtungen abgelaufen wird.
-  peaks.sort((a, b) => b.d - a.d);
-  for (const seed of peaks) {
+  for (const seed of seeds) {
     if (isVisited(seed.p.x, seed.p.y)) continue;
-    if (seed.d < SEED_MIN) continue;
+    if (seed.d < seedMin) continue;
     const c0 = toCenter(dist, gw, gh, seed.p, seed.rx, seed.ry);
     const p0 = c0 ?? seed.p;
     const fwd = march(p0, seed.rx, seed.ry);
@@ -639,7 +764,7 @@ function traceRidges(r: Raster, dist: Float32Array, verts: Vert[]): P[][] {
     const dMed = ds[Math.floor(ds.length / 2)];
     const dMid = sampleD(dist, gw, gh, pts[Math.floor(pts.length / 2)].x, pts[Math.floor(pts.length / 2)].y);
     if (len < STUB * 2 * dMid) continue;
-    if (dMed < SLIVER) continue;               // Streifen entlang des Rands (Eckenhäkchen)
+    if (dMed < Math.max(1.1, SLIVER_REL * u)) continue;   // Streifen entlang des Rands (Eckenhäkchen)
     for (const p of pts) mark(p.x, p.y);
     // Ecken-Häkchen nur dort wegmarkieren, wo der Lauf wirklich am Strichende
     // endete – an Gabelungen darf der Nachbarpfad weiterlaufen. Der Fächer
@@ -659,7 +784,26 @@ function traceRidges(r: Raster, dist: Float32Array, verts: Vert[]): P[][] {
     }
     paths.push(pts);
   }
-  return dropDuplicates(linkPaths(pruneHooks(paths, verts, dist, gw, gh), dist, gw, gh), dist, gw, gh);
+  return dropStubs(
+    dropDuplicates(
+      linkPaths(pruneHooks(paths, verts, dist, gw, gh, closeEps), dist, gw, gh, closeEps, u),
+      dist, gw, gh,
+    ),
+    dist, gw, gh,
+  );
+}
+
+/** Reststücke verwerfen: kürzer als ein paar Schrittweiten und ohne eigenen Nutzen. */
+function dropStubs(paths: P[][], dist: Float32Array, gw: number, gh: number): P[][] {
+  const out: P[][] = [];
+  for (const pts of paths) {
+    let len = 0;
+    for (let i = 1; i < pts.length; i++) len += Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
+    const ds: number[] = pts.map((p) => sampleD(dist, gw, gh, p.x, p.y)).sort((a, b) => a - b);
+    const dMed = ds[Math.floor(ds.length / 2)];
+    if (len >= Math.max(8, 2.5 * dMed)) out.push(pts);
+  }
+  return out;
 }
 
 /**
@@ -784,7 +928,7 @@ function prolong(pts: P[], dist: Float32Array, gw: number, gh: number) {
   const l = Math.hypot(dx, dy);
   if (l < 1e-6) return;
   dx /= l; dy /= l;
-  const step = STEP / 2;
+  const step = Math.min(1.5, Math.max(0.35, STEP_EXT * dEnd));
   const maxLen = Math.max(2, dEnd * 1.3 + 1.5);
   let px = b.x, py = b.y, len = 0;
   while (len < maxLen) {
@@ -809,7 +953,7 @@ function prolong(pts: P[], dist: Float32Array, gw: number, gh: number) {
  * wieder „auf der Mitte“ liegt; Reststücke, die nur aus einem Häkchen
  * bestanden, fallen ganz weg.
  */
-function pruneHooks(paths: P[][], verts: Vert[], dist: Float32Array, gw: number, gh: number): P[][] {
+function pruneHooks(paths: P[][], verts: Vert[], dist: Float32Array, gw: number, gh: number, closeEps: number): P[][] {
   if (!verts.length) return paths;
   const atCorner = (p: P): boolean => {
     const d = sampleD(dist, gw, gh, p.x, p.y);
@@ -823,7 +967,7 @@ function pruneHooks(paths: P[][], verts: Vert[], dist: Float32Array, gw: number,
   const out: P[][] = [];
   for (const pts of paths) {
     // geschlossener Ring: hat keine Enden, also auch keine Häkchen
-    if (Math.hypot(pts[0].x - pts[pts.length - 1].x, pts[0].y - pts[pts.length - 1].y) < 2) { out.push(pts); continue; }
+    if (Math.hypot(pts[0].x - pts[pts.length - 1].x, pts[0].y - pts[pts.length - 1].y) < closeEps) { out.push(pts); continue; }
     let a = 0, b = pts.length - 1;
     while (a < b && atCorner(pts[a])) a++;
     while (b > a && atCorner(pts[b])) b--;
@@ -932,7 +1076,7 @@ function dropDuplicates(paths: P[][], dist: Float32Array, gw: number, gh: number
  * (TRIM) – nie aber mitten hinein, sonst zerfällt der Nachbar in zwei Teile.
  * Die Verbindung muss immer im Bauteil liegen.
  */
-function linkPaths(paths: P[][], dist: Float32Array, gw: number, gh: number): P[][] {
+function linkPaths(paths: P[][], dist: Float32Array, gw: number, gh: number, closeEps: number, u: number): P[][] {
   if (paths.length < 2) return paths;
   const TRIM = 10;                   // Punkte, die am Nachbarn abgeschnitten werden dürfen
   const inside = (a: P, b: P): boolean => {
@@ -946,7 +1090,8 @@ function linkPaths(paths: P[][], dist: Float32Array, gw: number, gh: number): P[
     const l = Math.hypot(b.x - a.x, b.y - a.y) || 1;
     return [(b.x - a.x) / l, (b.y - a.y) / l];
   };
-  const isRing = (pts: P[]) => Math.hypot(pts[0].x - pts[pts.length - 1].x, pts[0].y - pts[pts.length - 1].y) < 2;
+  const isRing = (pts: P[]) => Math.hypot(pts[0].x - pts[pts.length - 1].x, pts[0].y - pts[pts.length - 1].y) < closeEps;
+  const scale = Math.max(3, 0.4 * u);        // ab dieser Lücke muss die Verbindung gerade weiterlaufen
   /**
    * Schnittpunkt der beiden Schenkel: an einer Ecke fehlt der Bogen der Achse
    * oft ganz (dort sitzt kein Maximum der Breite, an dem ein Lauf beginnen
@@ -961,7 +1106,19 @@ function linkPaths(paths: P[][], dist: Float32Array, gw: number, gh: number): P[
     if (t <= 0) return null;
     const x = { x: a.x + t * u[0], y: a.y + t * u[1] };
     if ((b.x - x.x) * v[0] + (b.y - x.y) * v[1] <= 0) return null;
-    return x;
+    if (sampleD(dist, gw, gh, x.x, x.y) >= 1) return x;
+    // Der Schnitt liegt knapp außerhalb (ganz spitze Ecke, dort treffen sich
+    // die Schenkel erst hinter der Spitze). Dann wird er auf der Winkel-
+    // halbierenden zurückgezogen, bis er im Material sitzt.
+    let vx = (a.x + b.x) / 2 - x.x, vy = (a.y + b.y) / 2 - x.y;
+    const l = Math.hypot(vx, vy);
+    if (l < 1e-6) return null;
+    vx /= l; vy /= l;
+    for (let s = 0.5; s <= l; s += 0.5) {
+      const q = { x: x.x + vx * s, y: x.y + vy * s };
+      if (sampleD(dist, gw, gh, q.x, q.y) >= 1.5) return q;
+    }
+    return null;
   };
 
   let cur = paths;
@@ -982,7 +1139,8 @@ function linkPaths(paths: P[][], dist: Float32Array, gw: number, gh: number): P[
           for (const flipJ of [false, true]) {
             const b = flipJ ? B[B.length - 1] : B[0];
             const gap = Math.hypot(b.x - a.x, b.y - a.y);
-            if (gap > lim) continue;
+            if (gap > lim * 4) continue;               // völlig auseinander
+            const nah = gap <= lim;
             // „in der Mitte“ ansetzen wäre erlaubt, zerteilt B aber – nur am Rand erlaubt
             let near = 0;
             for (let k = 0; k < B.length; k++) {
@@ -992,28 +1150,32 @@ function linkPaths(paths: P[][], dist: Float32Array, gw: number, gh: number): P[
             if (near > TRIM) continue;
             const v = flipJ ? dir(B[B.length - 1], B[Math.max(0, B.length - 6)]) : dir(B[0], B[Math.min(B.length - 1, 5)]);
             const al = u[0] * v[0] + u[1] * v[1];
-            if (al < -0.2) continue;                   // kein Rückwärtsgang
             // Erst versuchen, die beiden Schenkel bis zu ihrem Schnitt zu
             // verlängern (Ecke). Das greift nur, wenn der Schnitt nah genug
             // liegt – bei einem Bogen liegt er weit draußen, dort bleibt es
-            // bei der einfachen Verbindung.
+            // bei der einfachen Verbindung. An einer Ecke zeigen die beiden
+            // Richtungen gegeneinander; die Regel „kein Rückwärtsgang“ darf
+            // dann nicht gelten, sonst bleibt die Ecke offen.
             let via: P | null = null;
-            if (gap > 3) {
+            if (gap > scale) {
               const x = cornerAt(a, u, b, v);
               if (x) {
                 const la = Math.hypot(x.x - a.x, x.y - a.y), lb2 = Math.hypot(x.x - b.x, x.y - b.y);
-                if (la + lb2 <= CORNER_LINK * gap && la <= lim * 1.6 && lb2 <= lim * 1.6 &&
+                if (la + lb2 <= CORNER_LINK * gap && la <= lim * 2.5 && lb2 <= lim * 2.5 &&
                     inside(a, x) && inside(x, b)) via = x;
               }
             }
             if (!via) {
-              if (gap > 3) {                           // längere Verbindung muss gerade weiterlaufen
+              if (!nah) continue;                      // zu weit für eine direkte Verbindung
+              if (al < -0.2) continue;                 // kein Rückwärtsgang
+              if (gap > scale) {                       // längere Verbindung muss gerade weiterlaufen
                 const c = dir(a, b);
                 if (u[0] * c[0] + u[1] * c[1] < 0.2 || c[0] * v[0] + c[1] * v[1] < 0.2) continue;
               }
               if (!inside(a, b)) continue;
             }
-            const score = gap / Math.max(0.25, al) * (via ? 1.5 : 1);
+            const score = (via ? 1.1 * (Math.hypot(via.x - a.x, via.y - a.y) + Math.hypot(via.x - b.x, via.y - b.y)) : gap) /
+              Math.max(0.25, al);
             if (!best || score < best.score) best = { i, j, score, flipI, flipJ, via };
           }
         }
