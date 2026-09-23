@@ -40,7 +40,7 @@ jobs:
         run: npm run build
 
       # ---------------------------------------------------
-      # Normalen dist-Ordner als ZIP-Artefakt bereitstellen
+      # Normalen dist-Ordner bereitstellen
       # ---------------------------------------------------
 
       - name: Upload dist artifact
@@ -49,9 +49,10 @@ jobs:
           name: webapp-dist
           path: dist/
           retention-days: 30
+          if-no-files-found: error
 
       # ---------------------------------------------------
-      # PlatformIO installieren
+      # Python und PlatformIO installieren
       # ---------------------------------------------------
 
       - name: Setup Python
@@ -60,7 +61,7 @@ jobs:
           python-version: "3.12"
 
       - name: Install PlatformIO
-        run: pip install platformio
+        run: python -m pip install platformio
 
       # ---------------------------------------------------
       # Temporäres PlatformIO-Projekt vorbereiten
@@ -91,22 +92,64 @@ jobs:
           platform = https://github.com/Seeed-Studio/platform-seeedboards.git
           board = seeed-xiao-esp32-c6
           framework = arduino
-          platform_packages = platformio/tool-mklittlefs@1.203.210628
 
           board_build.filesystem = littlefs
+
+          platform_packages =
+              platformio/tool-mklittlefs@1.203.210628
           EOF
 
       # ---------------------------------------------------
-      # Inhalt vor dem Erstellen prüfen
+      # Erzeugte Konfiguration kontrollieren
+      # ---------------------------------------------------
+
+      - name: Show generated PlatformIO configuration
+        shell: bash
+        run: |
+          echo "Generierte platformio.ini:"
+          echo "----------------------------------------"
+          cat littlefs-build/platformio.ini
+          echo "----------------------------------------"
+
+      # ---------------------------------------------------
+      # LittleFS-Inhalt kontrollieren
       # ---------------------------------------------------
 
       - name: Show LittleFS files
+        shell: bash
         run: |
           echo "Folgende Dateien werden in LittleFS gepackt:"
           find littlefs-build/data -type f -printf "%p  %s Bytes\n"
 
+          echo
+          echo "Gesamtgröße der Vite-Dateien:"
+          du -sh littlefs-build/data
+
+          if [ ! -f littlefs-build/data/index.html ]; then
+            echo "FEHLER: dist/index.html wurde nicht gefunden."
+            exit 1
+          fi
+
       # ---------------------------------------------------
-      # LittleFS-Image erstellen
+      # LittleFS-Tool vorab installieren
+      # ---------------------------------------------------
+
+      - name: Install mklittlefs
+        working-directory: littlefs-build
+        run: |
+          pio pkg install \
+            --tool "platformio/tool-mklittlefs@1.203.210628"
+
+      # ---------------------------------------------------
+      # Installierte Pakete kontrollieren
+      # ---------------------------------------------------
+
+      - name: Show installed PlatformIO packages
+        working-directory: littlefs-build
+        run: pio pkg list
+
+      # ---------------------------------------------------
+      # LittleFS-Abbild bauen
       # ---------------------------------------------------
 
       - name: Build LittleFS image
@@ -114,20 +157,31 @@ jobs:
         run: pio run --target buildfs
 
       # ---------------------------------------------------
-      # Ergebnis eindeutig benennen
+      # Ergebnis überprüfen und umbenennen
       # ---------------------------------------------------
 
       - name: Prepare LittleFS artifact
         shell: bash
         run: |
-          cp \
-            littlefs-build/.pio/build/seeed_xiao_esp32c6/littlefs.bin \
-            CAM-System-littlefs.bin
+          SOURCE_FILE="littlefs-build/.pio/build/seeed_xiao_esp32c6/littlefs.bin"
+          TARGET_FILE="CAM-System-littlefs.bin"
 
-          ls -lh CAM-System-littlefs.bin
+          if [ ! -f "$SOURCE_FILE" ]; then
+            echo "FEHLER: LittleFS-Abbild wurde nicht gefunden."
+            echo "Gesuchte Datei: $SOURCE_FILE"
+            echo
+            echo "Vorhandene BIN-Dateien:"
+            find littlefs-build -type f -name "*.bin" -print
+            exit 1
+          fi
+
+          cp "$SOURCE_FILE" "$TARGET_FILE"
+
+          echo "LittleFS-Abbild erfolgreich erstellt:"
+          ls -lh "$TARGET_FILE"
 
       # ---------------------------------------------------
-      # littlefs.bin als GitHub-Artefakt bereitstellen
+      # LittleFS-BIN bereitstellen
       # ---------------------------------------------------
 
       - name: Upload LittleFS artifact
