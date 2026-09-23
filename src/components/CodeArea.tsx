@@ -1,5 +1,6 @@
 import { useRef, useState, type DragEvent, type ReactNode } from 'react';
 import { cn } from '../utils/cn';
+import { useI18n } from '../i18n';
 
 const LINE_H = 20;
 const PAD = 8;
@@ -9,6 +10,7 @@ export const DND_TYPE = 'application/x-gravura-gcode';
 export function CodeArea({ label, value, onChange, onFocus, active, rows = 5 }: {
   label: string; value: string; onChange: (v: string) => void; onFocus?: () => void; active?: boolean; rows?: number;
 }) {
+  const { t } = useI18n();
   const ta = useRef<HTMLTextAreaElement>(null);
   const [dropLine, setDropLine] = useState<number | null>(null);
   const [flash, setFlash] = useState<{ from: number; count: number } | null>(null);
@@ -46,7 +48,7 @@ export function CodeArea({ label, value, onChange, onFocus, active, rows = 5 }: 
     <div>
       <div className="mb-1 flex items-center justify-between text-[12px] text-fg2">
         <span>{label}</span>
-        {dropLine !== null && <span className="text-accent">Hier einfügen</span>}
+        {dropLine !== null && <span className="text-accent">{t.codeArea.insertHere}</span>}
       </div>
       <div className={cn('relative rounded-md border bg-s2 transition-colors duration-150', dropLine !== null ? 'border-accent ring-1 ring-accent' : active ? 'border-line-strong' : 'border-line')}>
         <textarea

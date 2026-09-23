@@ -98,19 +98,21 @@ export const PRESETS: { id: string; name: string; start: string; end: string }[]
   { id: 'grbl', name: 'GRBL', start: 'G21 G90 G17 G94\nG0 Z{safe}\nM3 S{rpm}\nG4 P1.5 ; Spindel hochlaufen', end: 'G0 Z{safe}\nM5\nG0 X0 Y0\nM2' },
   { id: 'linuxcnc', name: 'LinuxCNC / Mach3', start: 'G21 G90 G17 G40 G49 G94\nG64 P0.01\nG0 Z{safe}\nM3 S{rpm}\nG4 P2', end: 'G0 Z{safe}\nM5\nG0 X0 Y0\nM30' },
   { id: 'marlin', name: 'Marlin (CNC)', start: 'G21 G90\nG0 Z{safe}\nM3 S{rpm}\nG4 S2', end: 'G0 Z{safe}\nM5\nG0 X0 Y0\nM84' },
-  { id: 'minimal', name: 'Nur Bewegungen', start: 'G21 G90\nG0 Z{safe}', end: 'G0 Z{safe}' },
+  { id: 'minimal', name: 'Nur Bewegungen / Moves only', start: 'G21 G90\nG0 Z{safe}', end: 'G0 Z{safe}' },
 ];
 
-export const SNIPPETS: { l: string; t: string; d: string }[] = [
-  { l: 'Pause', t: 'M0 ; Pause – Weiter an der Maschine', d: 'Programm anhalten (z. B. Werkzeugwechsel)' },
-  { l: 'Spindel an', t: 'M3 S{rpm}', d: 'Spindel im Uhrzeigersinn starten' },
-  { l: 'Spindel aus', t: 'M5', d: 'Spindel stoppen' },
-  { l: 'Warten 2 s', t: 'G4 P2', d: 'Verweilzeit' },
-  { l: 'Kühlung an', t: 'M8', d: 'Kühlmittel / Luft ein' },
-  { l: 'Kühlung aus', t: 'M9', d: 'Kühlmittel / Luft aus' },
-  { l: 'Sicherheitshöhe', t: 'G0 Z{safe}', d: 'Auf sichere Höhe fahren' },
-  { l: 'Zum Nullpunkt', t: 'G0 X0 Y0', d: 'XY-Nullpunkt anfahren' },
-  { l: 'Z antasten', t: 'G38.2 Z-25 F60 ; Taster\nG92 Z0', d: 'Werkzeuglänge per Taster setzen' },
+export type SnippetId = 'pause' | 'spindleOn' | 'spindleOff' | 'dwell' | 'coolantOn' | 'coolantOff' | 'safeZ' | 'toOrigin' | 'probeZ';
+
+export const SNIPPETS: { id: SnippetId; l: string; t: string; d: string }[] = [
+  { id: 'pause', l: 'Pause', t: 'M0 ; Pause', d: 'Programm anhalten (z. B. Werkzeugwechsel)' },
+  { id: 'spindleOn', l: 'Spindel an', t: 'M3 S{rpm}', d: 'Spindel im Uhrzeigersinn starten' },
+  { id: 'spindleOff', l: 'Spindel aus', t: 'M5', d: 'Spindel stoppen' },
+  { id: 'dwell', l: 'Warten 2 s', t: 'G4 P2', d: 'Verweilzeit' },
+  { id: 'coolantOn', l: 'Kühlung an', t: 'M8', d: 'Kühlmittel / Luft ein' },
+  { id: 'coolantOff', l: 'Kühlung aus', t: 'M9', d: 'Kühlmittel / Luft aus' },
+  { id: 'safeZ', l: 'Sicherheitshöhe', t: 'G0 Z{safe}', d: 'Auf sichere Höhe fahren' },
+  { id: 'toOrigin', l: 'Zum Nullpunkt', t: 'G0 X0 Y0', d: 'XY-Nullpunkt anfahren' },
+  { id: 'probeZ', l: 'Z antasten', t: 'G38.2 Z-25 F60 ; Probe\nG92 Z0', d: 'Werkzeuglänge per Taster setzen' },
 ];
 
 export const defaultSettings: Settings = {

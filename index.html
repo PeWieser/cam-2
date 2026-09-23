@@ -12,6 +12,15 @@
     />
 
     <title>Gravura – 3D-Modell zu Gravur-G-Code</title>
+    <script>
+      try {
+        var _l = localStorage.getItem('gravura:lang') || ((navigator.languages && navigator.languages[0] || navigator.language || '').toLowerCase().startsWith('de') ? 'de' : 'en');
+        if (_l === 'en') {
+          document.documentElement.lang = 'en';
+          document.title = 'Gravura – 3D Model to Engraving G-Code';
+        }
+      } catch(e) {}
+    </script>
     <link rel="canonical" href="https://cam.mankind.lol/" />
 
     <!-- Favicon: V-Nut im Werkstück. Quelle src/assets/favicon.svg; Raster + Data-URI über `npm run icons` -->

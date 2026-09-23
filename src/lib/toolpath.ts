@@ -1,6 +1,7 @@
 import type { Contour, MeshData, Move, Op, OrientedMesh, OriginXY, Settings, Toolpath, Vec2 } from '../types';
 import { buildContours, chainSegments, hatchFill, nestingDepth, offsetPolygon, orient, pathLength, sliceMesh } from './geometry';
 import { computeCenterlines } from './centerline';
+import type { Lang } from '../i18n';
 
 // ---------------------------------------------------------------------------
 // 1. Ausrichtung
@@ -110,7 +111,9 @@ type Path = { pts: Vec2[]; closed: boolean; op: Op; depth: number; tabs: boolean
 /** Ab dieser Lücke (mm) zwischen zwei Gravurstücken wird der Kopf nicht mehr angehoben */
 const LINK_GAP = 0.3;
 
-export function computeToolpath(om: OrientedMesh, contours: Contour[], s: Settings): Toolpath | null {
+export function computeToolpath(om: OrientedMesh, contours: Contour[], s: Settings, lang: Lang = 'de'): Toolpath | null {
+  const isEn = lang === 'en';
+  const label = (c: Contour) => `${c.level > 0 ? `${isEn ? 'P' : 'E'}${c.level + 1}·` : ''}${(c.id % 100000) + 1}`;
   const warnings: string[] = [];
   const active = activeContours(contours, s);
   if (!active.length) return null;
@@ -144,7 +147,14 @@ export function computeToolpath(om: OrientedMesh, contours: Contour[], s: Settin
       const d = nestingDepth(c.pts, polys);
       const inward = d % 2 === 0;                       // äußere Taschenkontur → nach innen
       const off = r ? offsetPolygon(c.pts, inward ? -r : r) : c.pts;
-      if (!off) { warnings.push(`Tasche ${label(c)} ist kleiner als das Werkzeug und wird übersprungen.`); continue; }
+      if (!off) {
+        warnings.push(
+          isEn
+            ? `Pocket ${label(c)} is smaller than the tool and will be skipped.`
+            : `Tasche ${label(c)} ist kleiner als das Werkzeug und wird übersprungen.`
+        );
+        continue;
+      }
       bounds.push(orient(off, ccwFor(!inward)));
     }
     for (const b of bounds) paths.push({ pts: b, closed: true, op: 'pocket', depth: s.pocketDepth, tabs: false, order: 1 });
@@ -159,7 +169,14 @@ export function computeToolpath(om: OrientedMesh, contours: Contour[], s: Settin
     if (!c.closed) { paths.push({ pts: c.pts, closed: false, op: 'cut', depth: cutDepth, tabs: false, order: 2 }); continue; }
     const outside = c.depth % 2 === 0;                  // Außenkontur → Werkzeug außen
     const off = r ? offsetPolygon(c.pts, outside ? r : -r) : c.pts;
-    if (!off) { warnings.push(`Durchbruch ${label(c)} ist kleiner als das Werkzeug und wird übersprungen.`); continue; }
+    if (!off) {
+      warnings.push(
+        isEn
+          ? `Cutout ${label(c)} is smaller than the tool and will be skipped.`
+          : `Durchbruch ${label(c)} ist kleiner als das Werkzeug und wird übersprungen.`
+      );
+      continue;
+    }
     paths.push({ pts: orient(off, ccwFor(outside)), closed: true, op: 'cut', depth: cutDepth, tabs: s.tabCount > 0 && outside, order: outside ? 3 : 2 });
   }
   if (!paths.length) {
@@ -167,7 +184,13 @@ export function computeToolpath(om: OrientedMesh, contours: Contour[], s: Settin
     return null;
   }
 
-  if (s.tool.tipAngle > 0 && cuts.length) warnings.push('Durchbrüche mit V-Stichel werden konisch. Für saubere Kanten Schaftfräser (Spitzenwinkel 0°) verwenden.');
+  if (s.tool.tipAngle > 0 && cuts.length) {
+    warnings.push(
+      isEn
+        ? 'Cutouts with a V-bit will be tapered. For vertical edges, use an end mill (tip angle 0°).'
+        : 'Durchbrüche mit V-Stichel werden konisch. Für saubere Kanten Schaftfräser (Spitzenwinkel 0°) verwenden.'
+    );
+  }
 
   // --- Nullpunkt & Reihenfolge ---
   const o = originPoint(om, s.originXY);
@@ -230,7 +253,6 @@ export function computeToolpath(om: OrientedMesh, contours: Contour[], s: Settin
 
 // ---------------------------------------------------------------------------
 
-const label = (c: Contour) => `${c.level > 0 ? `E${c.level + 1}·` : ''}${(c.id % 100000) + 1}`;
 const endOf = (p: Path) => (p.closed ? p.pts[0] : p.pts[p.pts.length - 1]);
 
 /** Geschlossenen Pfad auf Höhe z mit Haltestegen (angehoben auf tabTop) versehen */

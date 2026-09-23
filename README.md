@@ -14,17 +14,19 @@ entirely client-side, needs no account and uploads nothing.
 
 | | |
 | --- | --- |
+| **Language** | Automatic system language detection (English / German) with manual toggle (`DE` / `EN`), persisted in `localStorage` |
 | **Import** | STL, OBJ, 3MF, STEP, IGES, BREP – drag and drop or file picker |
 | **Orient** | pick the top face, rotate in 90° steps, mirror for engraving from the back, inch → mm |
 | **Slice** | up to four horizontal planes; contours are shown live on the model |
 | **Origin** | 3 × 3 grid plus Z reference (top surface or spoil board) |
 | **Operations** | per contour: engrave, pocket, cut through or skip – assigned by clicking the line |
+| **Centerline** | true Voronoi/EDT ridge-marching; single-stroke continuous digits ("drawn in a single line"), T-junction joining (`joinBranches`), corner hook elimination, hole consumption |
 | **Strategy** | outline or centre line, depths, step-over, step-down, safe height |
 | **Cutting** | tabs on the outline, lead-in overshoot, climb/conventional, tool-radius compensation |
 | **Tool** | V-bit (angle, tip width) or end mill; engraving width is calculated from depth |
 | **Verify** | toolpath statistics, 3D preview and a simulation you can scrub through |
 | **Program** | start/end blocks, presets for GRBL, LinuxCNC/Mach3 and Marlin, placeholders for rpm, feed and safe height |
-| **Export** | download `.gcode`, copy with <kbd>Ctrl</kbd>+<kbd>C</kbd>, syntax-highlighted code view |
+| **Export** | download `.gcode`, copy with <kbd>Ctrl</kbd>+<kbd>C</kbd>, virtualized syntax-highlighted code view |
 
 Every step is undoable with <kbd>Ctrl</kbd>+<kbd>Z</kbd>.
 
@@ -55,31 +57,33 @@ Requires Node 20 or newer (developed on Node 22).
 | `npm run og` | re-render the 1200 × 630 link-preview image from `src/assets/og-image.svg` |
 
 The build is a single file (`vite-plugin-singlefile`): drop `dist/index.html` on any static host and
-it works – including from the file system. The icon files next to it are only needed for favicon,
-home screen and link previews.
+it works – including from the file system or embedded microcontrollers (ESP32 LittleFS). The icon
+files next to it are only needed for favicon, home screen and link previews.
 
 ## Layout
 
 ```
 src/
   App.tsx            shell: header, step bar, settings panel, 3D stage
+  i18n.tsx           internationalization: system language detection & translation dictionaries
   types.ts           settings, modes, steps, presets
   store.ts           settings state, undo/redo, browser persistence
   components/        step panels, 3D stage, G-code view, UI primitives
-  lib/               slicing, toolpath, G-code, geometry, file loaders
+  lib/               slicing, centerline extraction, toolpath, G-code, geometry, file loaders
   assets/            favicon and link-preview artwork
 public/              generated icons, web manifest
 scripts/             icon and preview-image generation
 ```
 
-`DESIGN.md` (German) records the design decisions and the reasoning behind them;
-`TESTMATRIX.md` lists the scenarios the app is checked against, from STEP imports to tabs.
+- `Doku.md` provides complete, in-depth architectural and algorithmic documentation in both German and English.
+- `DESIGN.md` (German) records the design decisions and the reasoning behind them.
+- `TESTMATRIX.md` lists the scenarios the app is checked against, from STEP imports to tabs and centerline sweeps.
 
 ## Privacy
 
 No upload, no telemetry, no account. Models are parsed in the browser; only STEP, IGES and BREP
 load their converter from a CDN on demand (`occt-import-js`) – everything else works offline.
-Stored locally: the selected mode and your settings (`localStorage`), so a reload continues where
+Stored locally: the selected language (`gravura:lang`), selected mode (`gravura:mode`), and your settings (`gravura:settings`), so a reload continues where
 you left off. The header has a button to reset them.
 
 ## Technology
@@ -88,7 +92,7 @@ React 19 · TypeScript · Vite · Tailwind CSS 4 · three.js · lucide-react · 
 
 ## Notes
 
-- The interface is German; the code and this README are English.
+- The interface supports both English and German with automatic system language selection and manual toggle in the header.
 - Type: browser tool, not a replacement for a full CAM program – one tool per program, no
   tool-change logic.
 - The link preview uses absolute URLs on `cam.mankind.lol`. If the app moves, update `og:url`,

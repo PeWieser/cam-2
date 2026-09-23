@@ -1,6 +1,7 @@
 import { useId, type ReactNode } from 'react';
 import { cn } from '../utils/cn';
 import type { OriginXY } from '../types';
+import { useI18n } from '../i18n';
 
 export function Field({ label, value, onChange, min, max, step = 0.1, unit, hint }: {
   label: string; value: number; onChange: (v: number) => void;
@@ -63,8 +64,7 @@ export function Segmented<T extends string>({ options, value, onChange, cols }: 
   options: { value: T; label: ReactNode; hint?: string }[]; value: T; onChange: (v: T) => void; cols?: number;
 }) {
   return (
-    // Spalten mindestens so breit wie ihr Text („Standard“ wird nicht abgeschnitten),
-    // bei Platz gleichmäßig gestreckt.
+    // Spalten mindestens so breit wie ihr Text, bei Platz gleichmäßig gestreckt.
     <div className="grid gap-1 rounded-lg bg-s3 p-1" style={{ gridTemplateColumns: `repeat(${cols ?? options.length}, minmax(max-content, 1fr))` }} role="radiogroup">
       {options.map((o) => (
         <button
@@ -105,19 +105,15 @@ const ORIGIN_GRID: OriginXY[] = [
   'center-left', 'center', 'center-right',
   'front-left', 'front-center', 'front-right',
 ];
-const ORIGIN_LABEL: Record<OriginXY, string> = {
-  'back-left': 'hinten links', 'back-center': 'hinten Mitte', 'back-right': 'hinten rechts',
-  'center-left': 'Mitte links', 'center': 'Mitte', 'center-right': 'Mitte rechts',
-  'front-left': 'vorne links', 'front-center': 'vorne Mitte', 'front-right': 'vorne rechts',
-};
 
 export function OriginPicker({ value, onChange }: { value: OriginXY; onChange: (v: OriginXY) => void }) {
+  const { t } = useI18n();
   return (
     <div className="flex items-center gap-4">
-      <div className="relative grid grid-cols-3 gap-1 rounded-lg border border-line bg-s2 p-2" role="radiogroup" aria-label="Nullpunkt XY">
+      <div className="relative grid grid-cols-3 gap-1 rounded-lg border border-line bg-s2 p-2" role="radiogroup" aria-label={t.stepOrigin.xyOriginLabel}>
         {ORIGIN_GRID.map((o) => (
           <button
-            key={o} type="button" role="radio" aria-checked={value === o} title={ORIGIN_LABEL[o]}
+            key={o} type="button" role="radio" aria-checked={value === o} title={t.stepOrigin.origins[o]}
             onClick={() => onChange(o)}
             className={cn('flex h-8 w-8 items-center justify-center rounded transition-colors duration-150', value === o ? 'bg-accent' : 'bg-s3 hover:bg-s4')}
           >
@@ -126,8 +122,8 @@ export function OriginPicker({ value, onChange }: { value: OriginXY; onChange: (
         ))}
       </div>
       <div className="text-[12px] leading-relaxed text-fg2">
-        <div className="text-fg">{ORIGIN_LABEL[value]}</div>
-        <div className="text-fg3">Oben = hinten (Y+),<br />unten = vorne (Y−)</div>
+        <div className="text-fg">{t.stepOrigin.origins[value]}</div>
+        <div className="whitespace-pre-line text-fg3">{t.stepOrigin.gridHelp}</div>
       </div>
     </div>
   );

@@ -3,10 +3,11 @@ import { STLLoader } from 'three/examples/jsm/loaders/STLLoader.js';
 import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js';
 import { ThreeMFLoader } from 'three/examples/jsm/loaders/3MFLoader.js';
 import type { MeshData } from '../types';
+import type { Lang } from '../i18n';
 
 export const SUPPORTED_EXT = ['stl', 'obj', '3mf', 'step', 'stp', 'iges', 'igs', 'brep'];
 
-export async function loadModelFile(file: File): Promise<MeshData> {
+export async function loadModelFile(file: File, lang: Lang = 'de'): Promise<MeshData> {
   const ext = (file.name.split('.').pop() || '').toLowerCase();
   const buffer = await file.arrayBuffer();
 
@@ -29,16 +30,22 @@ export async function loadModelFile(file: File): Promise<MeshData> {
       break;
     }
     case 'step': case 'stp': case 'iges': case 'igs': case 'brep': {
-      positions = await loadWithOcct(buffer, ext);
+      positions = await loadWithOcct(buffer, ext, lang);
       break;
     }
     default:
       throw new Error(
-        `Dateityp ".${ext}" wird nicht unterstützt. Unterstützt: ${SUPPORTED_EXT.map((e) => '.' + e).join(', ')}`
+        lang === 'en'
+          ? `File format ".${ext}" is not supported. Supported: ${SUPPORTED_EXT.map((e) => '.' + e).join(', ')}`
+          : `Dateityp ".${ext}" wird nicht unterstützt. Unterstützt: ${SUPPORTED_EXT.map((e) => '.' + e).join(', ')}`
       );
   }
 
-  if (!positions.length) throw new Error('Die Datei enthält keine Dreiecksgeometrie.');
+  if (!positions.length) {
+    throw new Error(
+      lang === 'en' ? 'The file contains no triangle geometry.' : 'Die Datei enthält keine Dreiecksgeometrie.'
+    );
+  }
 
   return {
     positions,
@@ -90,18 +97,23 @@ const OCCT_BASE = `https://cdn.jsdelivr.net/npm/occt-import-js@${OCCT_VERSION}/d
 
 let occtPromise: Promise<any> | null = null;
 
-function getOcct(): Promise<any> {
+function getOcct(lang: Lang = 'de'): Promise<any> {
   if (!occtPromise) {
     occtPromise = new Promise<any>((resolve, reject) => {
       const script = document.createElement('script');
       script.src = OCCT_BASE + 'occt-import-js.js';
       script.onload = () => {
         const factory = (window as any).occtimportjs;
-        if (!factory) { reject(new Error('occt-import-js konnte nicht initialisiert werden.')); return; }
+        if (!factory) {
+          reject(new Error(lang === 'en' ? 'occt-import-js could not be initialized.' : 'occt-import-js konnte nicht initialisiert werden.'));
+          return;
+        }
         factory({ locateFile: (f: string) => OCCT_BASE + f }).then(resolve, reject);
       };
       script.onerror = () => reject(new Error(
-        'STEP-Konverter (occt-import-js) konnte nicht geladen werden. Bitte Internetverbindung prüfen oder STL/3MF/OBJ verwenden.'
+        lang === 'en'
+          ? 'STEP converter (occt-import-js) could not be loaded. Please check your internet connection or use STL/3MF/OBJ.'
+          : 'STEP-Konverter (occt-import-js) konnte nicht geladen werden. Bitte Internetverbindung prüfen oder STL/3MF/OBJ verwenden.'
       ));
       document.head.appendChild(script);
     });
@@ -110,8 +122,8 @@ function getOcct(): Promise<any> {
   return occtPromise;
 }
 
-async function loadWithOcct(buffer: ArrayBuffer, ext: string): Promise<Float32Array> {
-  const occt = await getOcct();
+async function loadWithOcct(buffer: ArrayBuffer, ext: string, lang: Lang = 'de'): Promise<Float32Array> {
+  const occt = await getOcct(lang);
   const data = new Uint8Array(buffer);
   const params = { linearDeflection: 0.05, angularDeflection: 0.3 } as any;
   let result: any;
@@ -120,7 +132,7 @@ async function loadWithOcct(buffer: ArrayBuffer, ext: string): Promise<Float32Ar
   else result = occt.ReadBrepFile(data, params);
 
   if (!result?.success || !result.meshes?.length) {
-    throw new Error('Die STEP/IGES-Datei konnte nicht gelesen werden.');
+    throw new Error(lang === 'en' ? 'The STEP/IGES file could not be read.' : 'Die STEP/IGES-Datei konnte nicht gelesen werden.');
   }
 
   let total = 0;

@@ -9,14 +9,22 @@ import { useSettings, useStored } from './store';
 import { loadModelFile } from './lib/loaders';
 import { activeContours, centerlinePaths, computeToolpath, levelZ, opOf, orientMesh, originPoint, settingsKey, sliceLevels } from './lib/toolpath';
 import { generateGcode } from './lib/gcode';
-import { MODE_HINT, MODE_LABEL, MODE_STEPS, MODES, OP_LABEL, STEPS, type MeshData, type Mode, type Op, type StepId, type Toolpath } from './types';
+import { MODE_STEPS, MODES, STEPS, type MeshData, type Mode, type Op, type StepId, type Toolpath } from './types';
+import { I18nProvider, useI18n } from './i18n';
 import { cn } from './utils/cn';
 
 export default function App() {
-  return <ErrorBoundary><Workbench /></ErrorBoundary>;
+  return (
+    <I18nProvider>
+      <ErrorBoundary>
+        <Workbench />
+      </ErrorBoundary>
+    </I18nProvider>
+  );
 }
 
 function Workbench() {
+  const { t, lang, setLang } = useI18n();
   const { settings: s, set, undo, redo, reset, canUndo, canRedo, canReset } = useSettings();
   const [mesh, setMesh] = useState<MeshData | null>(null);
   const [step, setStep] = useState<StepId>('model');
@@ -51,35 +59,35 @@ function Workbench() {
     [clContours, s.engraveMode, s.tolerance, s.centerlineWidth, s.ops, s.minLength],
   );
   const stale = !!tp && tp.settingsKey !== settingsKey(s);
-  const gcode = useMemo(() => (tp && mesh && !stale ? generateGcode(tp, s, mesh.name) : ''), [tp, s, mesh, stale]);
+  const gcode = useMemo(() => (tp && mesh && !stale ? generateGcode(tp, s, mesh.name, lang) : ''), [tp, s, mesh, stale, lang]);
   const sliceZ = om && s.sliceOffsets[level] !== undefined ? levelZ(om, s.sliceOffsets[level]) : null;
 
   const handleFile = useCallback(async (f: File) => {
     setError(null); setLoading(true);
     try {
-      const m = await loadModelFile(f);
+      const m = await loadModelFile(f, lang);
       setMesh(m); setTp(null); setProgress(0); setLevel(0);
       const o = orientMesh(m, s);
       set({ ops: {}, material: +(o.max[2] - o.min[2]).toFixed(2) });
       setStep(MODE_STEPS[mode][1]); // erster Schritt nach dem Laden – je Modus verschieden
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Datei konnte nicht gelesen werden.');
+      setError(e instanceof Error ? e.message : t.errorFileRead);
     } finally { setLoading(false); }
-  }, [set, s, mode]);
+  }, [set, s, mode, lang, t.errorFileRead]);
 
   const compute = useCallback(() => {
     if (!om) return;
     setComputing(true);
     setTimeout(() => {
       try {
-        const r = computeToolpath(om, contours, s);
+        const r = computeToolpath(om, contours, s, lang);
         setTp(r); setProgress(0);
-        if (!r) setError('Mit diesen Einstellungen entsteht kein Werkzeugweg.');
+        if (!r) setError(t.errorNoToolpath);
       } catch (e) {
-        setError(e instanceof Error ? e.message : 'Berechnung fehlgeschlagen.');
+        setError(e instanceof Error ? e.message : t.errorComputeFailed);
       } finally { setComputing(false); }
     }, 20);
-  }, [om, contours, s]);
+  }, [om, contours, s, lang, t.errorNoToolpath, t.errorComputeFailed]);
 
   // Schritte des aktiven Modus („Einfach“ blendet ganze Schritte aus)
   const steps = useMemo(() => STEPS.filter((x) => MODE_STEPS[mode].includes(x.id)), [mode]);
@@ -106,8 +114,8 @@ function Workbench() {
   }, [set, setMode, s.sliceOffsets]);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const t = e.target as HTMLElement;
-      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT')) return;
+      const el = e.target as HTMLElement;
+      if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT')) return;
       if (e.key === 'ArrowRight' && e.altKey) go(1);
       if (e.key === 'ArrowLeft' && e.altKey) go(-1);
     };
@@ -115,7 +123,7 @@ function Workbench() {
     return () => window.removeEventListener('keydown', onKey);
   }, [go]);
 
-  // Auf dem Handy liegt die Schritt-Leiste waagerecht und scrollt: aktuellen Schritt nachziehen
+  // Auf dem Mobilgerät liegt die Schritt-Leiste waagerecht und scrollt: aktuellen Schritt nachziehen
   useEffect(() => {
     navRef.current?.querySelector<HTMLElement>('[aria-current="step"]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   }, [step]);
@@ -154,17 +162,43 @@ function Workbench() {
         <div className="flex min-w-0 items-center gap-2">
           <img src={favicon} alt="" aria-hidden="true" className="h-5 w-5 shrink-0 rounded-[5px]" />
           <span className="shrink-0 text-[13px] font-semibold tracking-tight">Gravura</span>
-          <span className="hidden truncate text-[12px] text-fg3 md:block">· Frontplatten aus 3D-Modellen fräsen</span>
+          <span className="hidden truncate text-[12px] text-fg3 md:block">{t.appSubtitle}</span>
         </div>
         <div className="flex w-full items-center justify-end gap-2 md:w-auto">
-          <span className="hidden shrink-0 text-[11px] text-fg3 xl:block">Modus</span>
-          <div className="min-w-max shrink-0" title={MODE_HINT[mode]}>
-            <Segmented value={mode} onChange={changeMode} options={MODES.map((m) => ({ value: m, label: MODE_LABEL[m], hint: MODE_HINT[m] }))} />
+          {/* Sprachumschaltung / Language Switcher */}
+          <div className="flex items-center rounded-lg bg-s3 p-0.5 text-[11px] font-medium" role="group" aria-label="Language">
+            <button
+              type="button"
+              onClick={() => setLang('de')}
+              className={cn(
+                'h-6 rounded px-2 transition-colors',
+                lang === 'de' ? 'bg-s1 text-fg shadow-[var(--mw-shadow)]' : 'text-fg3 hover:text-fg'
+              )}
+              title="Deutsch"
+            >
+              DE
+            </button>
+            <button
+              type="button"
+              onClick={() => setLang('en')}
+              className={cn(
+                'h-6 rounded px-2 transition-colors',
+                lang === 'en' ? 'bg-s1 text-fg shadow-[var(--mw-shadow)]' : 'text-fg3 hover:text-fg'
+              )}
+              title="English"
+            >
+              EN
+            </button>
+          </div>
+          <span className="h-4 w-px shrink-0 bg-line" aria-hidden="true" />
+          <span className="hidden shrink-0 text-[11px] text-fg3 xl:block">{t.mode}</span>
+          <div className="min-w-max shrink-0" title={t.modes[mode].hint}>
+            <Segmented value={mode} onChange={changeMode} options={MODES.map((m) => ({ value: m, label: t.modes[m].label, hint: t.modes[m].hint }))} />
           </div>
           <span className="h-5 w-px shrink-0 bg-line" aria-hidden="true" />
-          <IconBtn onClick={undo} disabled={!canUndo} title="Rückgängig (Strg+Z)"><Undo2 size={15} strokeWidth={1.7} /></IconBtn>
-          <IconBtn onClick={redo} disabled={!canRedo} title="Wiederholen (Strg+Shift+Z)"><Redo2 size={15} strokeWidth={1.7} /></IconBtn>
-          <IconBtn onClick={reset} disabled={!canReset} title="Alle Einstellungen auf Werkseinstellung zurücksetzen"><RotateCcw size={15} strokeWidth={1.7} /></IconBtn>
+          <IconBtn onClick={undo} disabled={!canUndo} title={t.undoTitle}><Undo2 size={15} strokeWidth={1.7} /></IconBtn>
+          <IconBtn onClick={redo} disabled={!canRedo} title={t.redoTitle}><Redo2 size={15} strokeWidth={1.7} /></IconBtn>
+          <IconBtn onClick={reset} disabled={!canReset} title={t.resetTitle}><RotateCcw size={15} strokeWidth={1.7} /></IconBtn>
           {mesh && <span className="num ml-1 hidden max-w-[240px] truncate text-[12px] text-fg3 lg:block">{mesh.name}</span>}
         </div>
       </header>
@@ -172,14 +206,14 @@ function Workbench() {
       {error && (
         <div role="status" className="flex items-center justify-between border-b border-danger/30 bg-s1 px-4 py-2 text-[12.5px] text-danger">
           <span>{error}</span>
-          <button className="text-fg3 hover:text-fg" onClick={() => setError(null)}>Schließen</button>
+          <button className="text-fg3 hover:text-fg" onClick={() => setError(null)}>{t.close}</button>
         </div>
       )}
 
       {/* Handy: Schritte als Leiste oben, Bühne darüber, Einstellungen darunter.
           Tablet: schmale Spalten. Desktop: wie gehabt. */}
       <div className="flex min-h-0 flex-1 flex-col md:flex-row">
-        <nav ref={navRef} className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-line bg-s1 px-2 py-1.5 md:w-[148px] md:flex-col md:items-stretch md:gap-0 md:overflow-visible md:border-b-0 md:border-r md:px-0 md:py-2 lg:w-[168px]" aria-label="Ablauf">
+        <nav ref={navRef} className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-line bg-s1 px-2 py-1.5 md:w-[148px] md:flex-col md:items-stretch md:gap-0 md:overflow-visible md:border-b-0 md:border-r md:px-0 md:py-2 lg:w-[168px]" aria-label={t.workflow}>
           {steps.map((x, i) => {
             const enabled = canGo(x.id);
             const done = i < idx;
@@ -190,7 +224,7 @@ function Workbench() {
                   step === x.id ? 'border-accent bg-accent text-accent-fg' : done ? 'border-line-strong text-fg2' : 'border-line text-fg3')}>
                   {done ? <Check size={11} strokeWidth={2.2} /> : i + 1}
                 </span>
-                {x.title}
+                {t.steps[x.id]}
               </button>
             );
           })}
@@ -200,11 +234,11 @@ function Workbench() {
           <div className="min-h-0 flex-1 overflow-y-auto" key={step}>{panel}</div>
           <div className="flex items-center justify-between border-t border-line px-4 py-2.5">
             <button onClick={() => go(-1)} disabled={idx === 0} className="inline-flex h-8 items-center gap-1 rounded-md px-2 text-[12.5px] text-fg2 hover:text-fg disabled:opacity-30">
-              <ChevronLeft size={15} strokeWidth={1.7} /> Zurück
+              <ChevronLeft size={15} strokeWidth={1.7} /> {t.back}
             </button>
             {idx < steps.length - 1 && (
               <button onClick={() => go(1)} disabled={!mesh} className="inline-flex h-8 items-center gap-1 rounded-md bg-accent px-3 text-[12.5px] font-medium text-accent-fg hover:brightness-110 disabled:opacity-30">
-                Weiter <ChevronRight size={15} strokeWidth={1.7} />
+                {t.next} <ChevronRight size={15} strokeWidth={1.7} />
               </button>
             )}
           </div>
@@ -229,22 +263,22 @@ function Workbench() {
             <div className={cn('pointer-events-none absolute inset-0 flex items-center justify-center transition-colors duration-200', dragOver && 'bg-accent-soft')}>
               <div className={cn('flex flex-col items-center gap-3 rounded-xl border border-dashed px-8 py-10 text-center transition-colors duration-200 sm:px-14 sm:py-12', dragOver ? 'border-accent' : 'border-line-strong')}>
                 <Upload size={22} strokeWidth={1.5} className="text-fg3" />
-                <div className="text-[13px] text-fg">3D-Datei hierher ziehen</div>
-                <div className="text-[12px] text-fg3">oder „Datei wählen“ im nächsten Schritt</div>
+                <div className="text-[13px] text-fg">{t.dropzoneTitle}</div>
+                <div className="text-[12px] text-fg3">{t.dropzoneSubtitle}</div>
               </div>
             </div>
           )}
           {mesh && !showCode && (
             <div className="pointer-events-none absolute bottom-3 left-3 flex max-w-[calc(100%-1.5rem)] flex-wrap gap-x-3 gap-y-1 text-[11px] text-fg3">
-              {(['engrave', 'pocket', 'cut', 'off'] as Op[]).map((o) => <Legend key={o} color={OP_COLOR[o]} label={OP_LABEL[o]} />)}
-              {showCenterlines && <Legend color="bg-[#22d3ee]" label="Mittellinie" />}
-              {showPath && <Legend color="bg-danger" label="Eilgang" />}
-              <span className="hidden sm:inline">Ziehen: drehen · Rad: zoomen · Rechts: verschieben</span>
+              {(['engrave', 'pocket', 'cut', 'off'] as Op[]).map((o) => <Legend key={o} color={OP_COLOR[o]} label={t.ops[o]} />)}
+              {showCenterlines && <Legend color="bg-[#22d3ee]" label={t.legendCenterline} />}
+              {showPath && <Legend color="bg-danger" label={t.legendRapid} />}
+              <span className="hidden sm:inline">{t.legendControls}</span>
             </div>
           )}
           {step === 'select' && mesh && (
             <div className="pointer-events-none absolute top-3 left-3 rounded-md border border-line bg-s1/90 px-3 py-1.5 text-[12px] text-fg2 backdrop-blur">
-              Klick auf eine Linie → <span className="text-fg">{OP_LABEL[brush]}</span>
+              {t.legendClickToAssign}<span className="text-fg">{t.ops[brush]}</span>
             </div>
           )}
           {dragOver && mesh && <div className="pointer-events-none absolute inset-0 border-2 border-accent bg-accent-soft" />}
@@ -275,9 +309,9 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { err: Error | nu
       return (
         <div className="flex h-full items-center justify-center bg-bg p-8 text-fg">
           <div className="max-w-md rounded-lg border border-line bg-s1 p-5">
-            <div className="text-[14px] font-semibold">Etwas ist schiefgelaufen</div>
+            <div className="text-[14px] font-semibold">Error / Fehler</div>
             <p className="mt-1 text-[12.5px] text-fg2">{this.state.err.message}</p>
-            <button onClick={() => location.reload()} className="mt-4 h-8 rounded-md bg-accent px-3 text-[12.5px] font-medium text-accent-fg">Neu laden</button>
+            <button onClick={() => location.reload()} className="mt-4 h-8 rounded-md bg-accent px-3 text-[12.5px] font-medium text-accent-fg">Reload / Neu laden</button>
           </div>
         </div>
       );

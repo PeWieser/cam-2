@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import type { Contour, Op, OrientedMesh, Tool, Toolpath, Vec2 } from '../types';
+import { useI18n } from '../i18n';
 
 export type StageProps = {
   mesh: OrientedMesh | null;
@@ -36,6 +37,7 @@ const C = {
 const OPC: Record<Op, number> = { engrave: 0x3b82f6, pocket: 0xa78bfa, cut: 0xfbbf24, off: 0x4a4a52 };
 
 export default function Stage(p: StageProps) {
+  const { t } = useI18n();
   const ref = useRef<HTMLDivElement>(null);
   const st = useRef<{
     renderer: THREE.WebGLRenderer; scene: THREE.Scene; camera: THREE.PerspectiveCamera; controls: OrbitControls;
@@ -53,7 +55,7 @@ export default function Stage(p: StageProps) {
     try {
       renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
     } catch {
-      el.innerHTML = '<div style="padding:24px;color:#a1a1aa;font-size:13px">WebGL ist in diesem Browser nicht verfügbar.</div>';
+      el.innerHTML = `<div style="padding:24px;color:#a1a1aa;font-size:13px">${t.webglUnavailable}</div>`;
       return;
     }
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
