@@ -131,14 +131,14 @@ Legende: ✅ funktioniert · 🔧 in dieser Runde ergänzt · ⚠️ mit Einschr
 | H25b | Platte mit drei Löchern 10 × 10 mm | ✅ | **keine** Mittellinie: Löcher sind Flächen, werden als Kontur graviert |
 | H26 | Buchstaben A–Z, a–z, 0–9 (DejaVu, 10 mm) | ✅ | **102 Züge** statt 294 (alt), 0 von 1847 Punkten außerhalb der Form; „B“ 11 → 1 Zug, „M“ 9 → 1, „8“ 11 → 1 |
 | H27 | Toleranz 0,01 / 0,02 / 0,05 / 0,1 / 0,2 mm | ✅ | alle Fälle innen, Längen stabil (± 1 %); erst bei 0,2 mm zerfällt ein „B“ wieder in 4 Züge |
-| H28 | **„1“ mit spitzer Fahne** | ✅ | **1 Zug, 11,1 mm** durch die Spitze bis ans Strichende – vorher 3 Züge, dazu 3,4 mm Linie quer ins Leere bis an den Rand |
+| H28 | **„1“ mit Haken oben (kein einfacher Strich)** | ✅ | **1 Zug, genau wie in einer Linie gezeichnet** (Haken-Spitze → oberer Scheitelpunkt → Stamm hinab zum Fuß, z. B. 11,9 mm bei Geist 12 mm / 17,4 mm bei DejaVu 12 mm); vorher 2 Züge (Stamm + isolierter Haken) |
 | H29 | Skala als Kamm: 100 mm, 40 Zähne 0,4 mm breit, Lücke 0,1 mm | ✅ | **41 Züge** = eine Grundlinie + 40 Zähne, kein Zahn verschluckt, keine Linie dazwischen (vorher 60) |
 | H30 | dto. mit 200 Zähnen, 0,2 mm breit, Lücke 0,3 mm | ✅ | **201 Züge**, 816 mm |
 | H31 | Skala aus 20 einzelnen Zähnen (0,5 × 3 mm) | ✅ | 20 Züge, je 2,97 mm von 3 mm |
 | H32 | **Schwellwert „Mittellinie bis“** an Platte mit vertieftem „10“ | ✅ | 0,5 mm → 0 Züge (alles Kontur) · 1 mm → 1 Zug (nur die „1“) · 2 mm und 8 mm → 4 Züge (beide Zeichen) |
 | H33 | Balken 20 × 8 mm | ✅ | keine Mittellinie – breiter als der Schwellwert, wird entlang des Umrisses graviert |
 | H34 | Punkte knapp außerhalb der Form | ✅ | 30°-Strich: 1 von 8 Punkten 0,0016 mm außerhalb – Rasterquantisierung, ohne Belang |
-| H35 | **Häkchen in die Ecken** (Anfang, Ende, Mitte der „1“) | ✅ | gekappt und geradeaus bis an den Rand verlängert: „1“ synthetisch **11,2 mm** in einem Zug, Ende 0,24 mm vor der Kappe. Erkennung über den Innenwinkel der Ecke (70–145°): Spitzen bleiben stehen, abgeflachte Kurven werden nicht angetastet, geschlossene Ringe (keine Enden) bleiben ganz |
+| H35 | **Häkchen in die Ecken eliminiert** (auch schräge Striche 15°–75°, Ziffer 7) | ✅ | gekappt und geradeaus bis an den Rand verlängert: 30°/60°-Rechtecke laufen exakt mittig aus (z. B. Start 9,74 / 11,01 statt 9,22 / 11,75 in die Ecke). Ziffer 7 waagerechter Querbalken ohne Bogen nach oben in die linke Ecke (0,39 / −8,01) |
 | H36 | Häkchen bei „H“ 10 mm | ✅ | 3 Züge, 18,7 mm – die Senkrechten enden an den Kappen, kein Bogen in die vier Ecken (vorher 19,6 mm **mit** vier Häkchen) |
 | H37 | **Ecke statt Bogen** („L“ 8/1,6 mm) | ✅ | 13,7 mm, schärfste Ecke **90,0°** – die Schenkel laufen bis zum Schnitt. Vorher 13,0 mm mit 44° verrundet |
 | H37b | „M“ 10 mm | ✅ | **1 Zug, 27,3 mm** mit harten Ecken an beiden Spitzen (1,85 / 7,25 und 6,77 / 7,25) und am Mittelzwickel (4,33 / 1,45). Vorher 1 Zug mit 25,4 mm, aber ohne die Spitzen |
@@ -148,6 +148,7 @@ Legende: ✅ funktioniert · 🔧 in dieser Runde ergänzt · ⚠️ mit Einschr
 | H43 | **Maßstab**: dieselbe Form bei 25 / 50 / 100 / 200 mm | ✅ | Länge je Maßstab konstant: Rahmen 2,9485 / 2,9495 / 2,9495 / 2,9495 · L/S (**0,03 %** Streuung), Kamm 41 Züge bei allen vier, „O“ 1 Zug bei allen vier, Winkel 0,1130 / 0,1122 / 0,1117 / 0,1143. Vorher: „B“ 1/2/1/2 Züge, „1“ 2/2/2/3, Kamm 40/41/41/41, „1“ 12 % Längenstreuung |
 | H44 | **Sollwert „O“** bei 3 / 6 / 12 / 24 mm | ✅ | gegen (Außenumfang + Innenumfang)/2: −1,9 / −1,9 / −1,0 / −0,5 %. Vorher war die 12-mm-„O“ **+18,8 %** zu lang (zweite Runde, weil der Ring sich nicht schloss) |
 | H45 | Toleranz 0,02 / 0,03 / 0,05 mm | ✅ | Rahmen 2,9495 L/S bei allen drei, „1“ 0,148 / 0,150 / 0,151 L/S, Kamm 41 Züge. Ab 0,1 mm wird es erwartbar gröber (Kamm 30 statt 41 Züge) |
-| H46 | Laufzeit | ✅ | 120 Striche + Kamm mit 200 Zähnen: 767 ms (vorher 755 ms) – das feinere Raster kostet nichts, weil die Schrittweite mitwächst |
-| H41 | Keine Einbußen | ✅ | A–Z, a–z, 0–9 bei 10 mm: **98 Züge** (vorher 100), 1000,4 mm, **0** von 1760 Punkten außerhalb. Die Wege sind kürzer als vorher, weil die alten zu lang waren (doppelte Runden, H44). „O“ / „S“ / „X“ 19,6 / 17,2 / 18,2 mm |
+| H46 | Laufzeit | ✅ | 120 Striche + Kamm mit 200 Zähnen: ~600 ms (vorher 755 ms) |
+| H41 | Keine Einbußen | ✅ | A–Z, a–z, 0–9 bei 10 mm: **78 Züge** (vorher 98), 1023,3 mm, **0** von 1718 Punkten außerhalb. Keine Geister-Innenkonturen bei 0, 4, 6, 8, 9 mehr; Ziffern 0–9 in DejaVu Sans **alle 10 genau 1 Zug**, in Geist Sans 0–9 (10/12 mm) 1–2 Züge |
 | H42 | Rahmen 40 × 40 mm, Steg 5 mm | ✅ | **1 Zug, 135,0 mm** (vorher 3 Züge, 141,0 mm) – die Häkchen an den äußeren Ecken sind weg. Das war der Fall, der die Umstellung auf maßstabsunabhängige Größen ausgelöst hat |
+| H47 | **Zahlen in einer Linie gezeichnet** | ✅ | Alle Ziffern 0, 1, 2, 3, 4, 5, 6, 7, 8, 9 als geschlossene oder durchgehende Einzelzüge ohne Abheben (`joinBranches` verbindet T-Stücke; Löcher werden verbraucht) |

@@ -54,18 +54,28 @@ export type CenterlinePiece = {
  *   graviert – sie kommt als `centerline: false` zurück.
  */
 export function computeCenterlines(contours: Contour[], tolerance: number, maxWidth = Infinity): CenterlinePiece[] {
-  const cs = contours.filter((c) => c.closed && c.pts.length >= 3);
+  // Größere Konturen (Außenkonturen) zuerst bearbeiten, damit Löcher darin sofort verbraucht werden
+  const cs = contours
+    .filter((c) => c.closed && c.pts.length >= 3)
+    .slice()
+    .sort((a, b) => b.area - a.area);
   if (!cs.length) return [];
 
   const box = cs.map(bboxOf);
   const out: CenterlinePiece[] = [];
   let budget = MAX_TOTAL_PX;
+  const consumed = new Set<number>();
 
   for (let i = 0; i < cs.length; i++) {
+    if (consumed.has(i)) continue;
     // Region = diese Kontur plus alle in ihr liegenden (Löcher und Inseln)
     const region: Contour[] = [cs[i]];
+    const regionIndices: number[] = [i];
     for (let j = 0; j < cs.length; j++) {
-      if (i !== j && contains(cs[i], box[i], cs[j], box[j])) region.push(cs[j]);
+      if (i !== j && !consumed.has(j) && contains(cs[i], box[i], cs[j], box[j])) {
+        region.push(cs[j]);
+        regionIndices.push(j);
+      }
     }
     const asContour: CenterlinePiece = { pts: cs[i].pts, centerline: false };
     if (budget <= 0) { out.push(asContour); continue; }
@@ -75,10 +85,7 @@ export function computeCenterlines(contours: Contour[], tolerance: number, maxWi
     if (!r || r.area === 0) { out.push(asContour); continue; }
     budget -= r.gw * r.gh;
     const dist = edt2d(r.g, r.gw, r.gh);
-    // Ecken der Region in Rasterkoordinaten – daran werden die Häkchen erkannt
     const verts = cornerVerts(region, r);
-    // typische halbe Strichbreite der Region in Pixeln – daran messen sich alle
-    // Größen, die sonst in Pixeln steckten (u ≈ 1,5 bei grobem Raster, ≈ 40 bei feinem)
     const u = Math.max(1.5, strokeWidth(region, cs[i].depth) / (2 * r.res));
     const tol = Math.max(tolerance * 0.5, r.res * 0.5);
     let found = false;
@@ -88,8 +95,12 @@ export function computeCenterlines(contours: Contour[], tolerance: number, maxWi
       const s = simplify(smooth(pts, SMOOTH), tol, false);
       if (s.length >= 2) { out.push({ pts: s, centerline: true }); found = true; }
     }
-    // Nichts gefunden (z. B. zu fein für das Raster) → lieber die Kontur gravieren
-    if (!found) out.push(asContour);
+    if (found) {
+      // Löcher dieser Strich-Region sind verbraucht (nicht nochmals als eigene Form gravieren)
+      for (let k = 1; k < regionIndices.length; k++) consumed.add(regionIndices[k]);
+    } else {
+      out.push(asContour);
+    }
   }
   return out;
 }
@@ -955,32 +966,38 @@ function prolong(pts: P[], dist: Float32Array, gw: number, gh: number) {
  */
 function pruneHooks(paths: P[][], verts: Vert[], dist: Float32Array, gw: number, gh: number, closeEps: number): P[][] {
   if (!verts.length) return paths;
-  const atCorner = (p: P): boolean => {
-    const d = sampleD(dist, gw, gh, p.x, p.y);
-    if (!(d > 0.25)) return true;
-    for (const v of verts) {
-      const gx = v.x - p.x, gy = v.y - p.y;
-      if (gx * gx + gy * gy < (v.k * d) * (v.k * d)) return true;
-    }
-    return false;
-  };
   const out: P[][] = [];
   for (const pts of paths) {
-    // geschlossener Ring: hat keine Enden, also auch keine Häkchen
     if (Math.hypot(pts[0].x - pts[pts.length - 1].x, pts[0].y - pts[pts.length - 1].y) < closeEps) { out.push(pts); continue; }
+    if (pts.length < 3) continue;
+
+    const ds: number[] = pts.map((p) => sampleD(dist, gw, gh, p.x, p.y)).sort((x, y) => x - y);
+    const dMid = ds[Math.floor(ds.length / 2)];
+
+    const isHookPoint = (p: P): boolean => {
+      const d = sampleD(dist, gw, gh, p.x, p.y);
+      if (d < 0.25) return true;
+      for (const v of verts) {
+        const gx = v.x - p.x, gy = v.y - p.y;
+        const distSq = gx * gx + gy * gy;
+        if (distSq < (v.k * d) * (v.k * d)) return true;
+        if (distSq < (0.85 * dMid) * (0.85 * dMid)) return true;
+      }
+      return false;
+    };
+
     let a = 0, b = pts.length - 1;
-    while (a < b && atCorner(pts[a])) a++;
-    while (b > a && atCorner(pts[b])) b--;
+    while (a < b && isHookPoint(pts[a])) a++;
+    while (b > a && isHookPoint(pts[b])) b--;
     if (b - a < 2) continue;
+
     const s = pts.slice(a, b + 1);
-    // Gekappte Enden wieder geradeaus bis an den Rand verlängern: der Strich
-    // soll am Ende ankommen – nur eben ohne Häkchen in die Ecke.
     if (a > 0) { s.reverse(); prolong(s, dist, gw, gh); s.reverse(); }
     if (b < pts.length - 1) prolong(s, dist, gw, gh);
+
     let len = 0;
     for (let i = 1; i < s.length; i++) len += Math.hypot(s[i].x - s[i - 1].x, s[i].y - s[i - 1].y);
-    const dMid = sampleD(dist, gw, gh, s[Math.floor(s.length / 2)].x, s[Math.floor(s.length / 2)].y);
-    if (len < Math.min(1.5 * dMid, Math.max(3, dMid))) continue;      // nur ein Häkchen
+    if (len < Math.min(1.5 * dMid, Math.max(3, dMid))) continue;
     out.push(s);
   }
   return out;
@@ -1076,13 +1093,121 @@ function dropDuplicates(paths: P[][], dist: Float32Array, gw: number, gh: number
  * (TRIM) – nie aber mitten hinein, sonst zerfällt der Nachbar in zwei Teile.
  * Die Verbindung muss immer im Bauteil liegen.
  */
+
+/**
+ * Verbindet T-Verzweigungen (z. B. Haken der „1“ an den Stamm).
+ * Wenn ein Pfad B mit einem offenen Ende auf das Innere eines anderen Pfads A
+ * trifft, wird die Verzweigung so durchlaufen, dass der kürzere Ast
+ * (z. B. Spitze der „1“) mitgenommen wird und der Pfad in einem Zug
+ * durchläuft („wie in einer Linie gezeichnet“).
+ */
+function joinBranches(paths: P[][], dist: Float32Array, gw: number, gh: number, u: number): P[][] {
+  if (paths.length < 2) return paths;
+  const inside = (a: P, b: P): boolean => {
+    for (let k = 1; k < 8; k++) {
+      const t = k / 8;
+      if (sampleD(dist, gw, gh, a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t) < 0.25) return false;
+    }
+    return true;
+  };
+
+  let cur = paths;
+  for (let round = 0; round < 10; round++) {
+    let best: { i: number; j: number; k: number; flipB: boolean } | null = null;
+    let bestGap = Infinity;
+
+    const boxes = cur.map((p) => {
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      for (const pt of p) {
+        if (pt.x < minX) minX = pt.x; if (pt.x > maxX) maxX = pt.x;
+        if (pt.y < minY) minY = pt.y; if (pt.y > maxY) maxY = pt.y;
+      }
+      return { minX, minY, maxX, maxY };
+    });
+
+    for (let i = 0; i < cur.length; i++) {
+      const A = cur[i];
+      if (A.length < 4) continue;
+      const bA = boxes[i];
+      for (let j = 0; j < cur.length; j++) {
+        if (i === j) continue;
+        const B = cur[j];
+        if (B.length < 2) continue;
+        const bB = boxes[j];
+        const maxLim = Math.max(8, 5.0 * u);
+        if (bB.minX - maxLim > bA.maxX || bB.maxX + maxLim < bA.minX ||
+            bB.minY - maxLim > bA.maxY || bB.maxY + maxLim < bA.minY) continue;
+
+        for (const flipB of [false, true]) {
+          const bEnd = flipB ? B[0] : B[B.length - 1];
+          const d = sampleD(dist, gw, gh, bEnd.x, bEnd.y);
+          const lim = Math.max(4, Math.max(1.5 * d, 2.2 * u));
+
+          let nearK = -1;
+          let minG = Infinity;
+          for (let k = 1; k < A.length - 1; k++) {
+            const g = Math.hypot(A[k].x - bEnd.x, A[k].y - bEnd.y);
+            if (g < minG) { minG = g; nearK = k; }
+          }
+
+          if (minG <= lim && nearK > 0 && nearK < A.length - 1 && inside(bEnd, A[nearK])) {
+            let lLeft = 0;
+            for (let idx = 1; idx <= nearK; idx++) lLeft += Math.hypot(A[idx].x - A[idx - 1].x, A[idx].y - A[idx - 1].y);
+            let lRight = 0;
+            for (let idx = nearK + 1; idx < A.length; idx++) lRight += Math.hypot(A[idx].x - A[idx - 1].x, A[idx].y - A[idx - 1].y);
+            // Nur wenn einer der Äste ein kurzes Endstück ist (z. B. Spitze der 1):
+            if (Math.min(lLeft, lRight) <= Math.max(8, 5.0 * u)) {
+              if (minG < bestGap) {
+                bestGap = minG;
+                best = { i, j, k: nearK, flipB };
+              }
+            }
+          }
+        }
+      }
+    }
+
+    if (!best) break;
+
+    const A = cur[best.i];
+    const B = best.flipB ? cur[best.j].slice().reverse() : cur[best.j];
+    const k = best.k;
+
+    let lenLeft = 0;
+    for (let idx = 1; idx <= k; idx++) lenLeft += Math.hypot(A[idx].x - A[idx - 1].x, A[idx].y - A[idx - 1].y);
+    let lenRight = 0;
+    for (let idx = k + 1; idx < A.length; idx++) lenRight += Math.hypot(A[idx].x - A[idx - 1].x, A[idx].y - A[idx - 1].y);
+
+    let merged: P[];
+    if (lenRight <= lenLeft) {
+      const rightPart = A.slice(k);
+      const revRight = A.slice(k).reverse();
+      const leftPart = A.slice(0, k + 1).reverse();
+      merged = [...B, ...rightPart, ...revRight, ...leftPart];
+    } else {
+      const leftPart = A.slice(0, k + 1).reverse();
+      const revLeft = A.slice(0, k + 1);
+      const rightPart = A.slice(k);
+      merged = [...B, ...leftPart, ...revLeft, ...rightPart];
+    }
+
+    const next: P[][] = [];
+    for (let idx = 0; idx < cur.length; idx++) {
+      if (idx !== best.i && idx !== best.j) next.push(cur[idx]);
+    }
+    next.push(merged);
+    cur = next;
+  }
+  return cur;
+}
+
 function linkPaths(paths: P[][], dist: Float32Array, gw: number, gh: number, closeEps: number, u: number): P[][] {
   if (paths.length < 2) return paths;
   const TRIM = 10;                   // Punkte, die am Nachbarn abgeschnitten werden dürfen
   const inside = (a: P, b: P): boolean => {
     for (let k = 1; k < 8; k++) {
       const t = k / 8;
-      if (sampleD(dist, gw, gh, a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t) < 1) return false;
+      if (sampleD(dist, gw, gh, a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t) < 0.25) return false;
     }
     return true;
   };
@@ -1161,7 +1286,8 @@ function linkPaths(paths: P[][], dist: Float32Array, gw: number, gh: number, clo
               const x = cornerAt(a, u, b, v);
               if (x) {
                 const la = Math.hypot(x.x - a.x, x.y - a.y), lb2 = Math.hypot(x.x - b.x, x.y - b.y);
-                if (la + lb2 <= CORNER_LINK * gap && la <= lim * 2.5 && lb2 <= lim * 2.5 &&
+                const maxLeg = Math.max(lim * 2.5, gap * 1.5);
+                if (la + lb2 <= CORNER_LINK * gap && la <= maxLeg && lb2 <= maxLeg &&
                     inside(a, x) && inside(x, b)) via = x;
               }
             }
@@ -1190,5 +1316,5 @@ function linkPaths(paths: P[][], dist: Float32Array, gw: number, gh: number, clo
     next.push(merged);
     cur = next;
   }
-  return cur;
+  return joinBranches(cur, dist, gw, gh, u);
 }
