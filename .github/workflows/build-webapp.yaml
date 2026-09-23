@@ -70,6 +70,8 @@ jobs:
       - name: Prepare LittleFS build directory
         shell: bash
         run: |
+          set -e
+
           mkdir -p littlefs-build/data
           mkdir -p littlefs-build/src
 
@@ -100,29 +102,25 @@ jobs:
           EOF
 
       # ---------------------------------------------------
-      # Erzeugte Konfiguration kontrollieren
+      # Dateien und Konfiguration kontrollieren
       # ---------------------------------------------------
 
-      - name: Show generated PlatformIO configuration
+      - name: Validate build input
         shell: bash
         run: |
+          set -e
+
           echo "Generierte platformio.ini:"
           echo "----------------------------------------"
           cat littlefs-build/platformio.ini
           echo "----------------------------------------"
 
-      # ---------------------------------------------------
-      # LittleFS-Inhalt kontrollieren
-      # ---------------------------------------------------
-
-      - name: Show LittleFS files
-        shell: bash
-        run: |
+          echo
           echo "Folgende Dateien werden in LittleFS gepackt:"
           find littlefs-build/data -type f -printf "%p  %s Bytes\n"
 
           echo
-          echo "Gesamtgröße der Vite-Dateien:"
+          echo "Gesamtgröße:"
           du -sh littlefs-build/data
 
           if [ ! -f littlefs-build/data/index.html ]; then
@@ -131,22 +129,83 @@ jobs:
           fi
 
       # ---------------------------------------------------
-      # LittleFS-Tool vorab installieren
+      # mklittlefs installieren
       # ---------------------------------------------------
 
       - name: Install mklittlefs
         working-directory: littlefs-build
+        shell: bash
         run: |
+          set -e
+
           pio pkg install \
+            --global \
             --tool "platformio/tool-mklittlefs@1.203.210628"
 
       # ---------------------------------------------------
-      # Installierte Pakete kontrollieren
+      # mklittlefs in PATH aufnehmen
       # ---------------------------------------------------
 
-      - name: Show installed PlatformIO packages
-        working-directory: littlefs-build
-        run: pio pkg list
+      - name: Add mklittlefs to PATH
+        shell: bash
+        run: |
+          set -e
+
+          echo "Suche mklittlefs ..."
+
+          MKLITTLEFS_PATH="$(
+            find "$HOME/.platformio" \
+              -type f \
+              -name "mklittlefs" \
+              -print \
+              -quit
+          )"
+
+          if [ -z "$MKLITTLEFS_PATH" ]; then
+            echo "FEHLER: mklittlefs wurde nicht gefunden."
+            echo
+            echo "PlatformIO-Paketverzeichnis:"
+            find "$HOME/.platformio/packages" \
+              -maxdepth 3 \
+              -type f \
+              -print || true
+            exit 1
+          fi
+
+          echo "mklittlefs gefunden:"
+          echo "$MKLITTLEFS_PATH"
+
+          chmod +x "$MKLITTLEFS_PATH"
+
+          MKLITTLEFS_DIRECTORY="$(dirname "$MKLITTLEFS_PATH")"
+
+          echo "$MKLITTLEFS_DIRECTORY" >> "$GITHUB_PATH"
+
+          echo "MKLITTLEFS_PATH=$MKLITTLEFS_PATH" >> "$GITHUB_ENV"
+
+      # ---------------------------------------------------
+      # PATH und Programm prüfen
+      # ---------------------------------------------------
+
+      - name: Verify mklittlefs
+        shell: bash
+        run: |
+          set -e
+
+          echo "PATH:"
+          echo "$PATH"
+
+          echo
+          echo "Gefundener Befehl:"
+          command -v mklittlefs
+
+          echo
+          echo "Dateiinformationen:"
+          ls -l "$MKLITTLEFS_PATH"
+
+          echo
+          echo "mklittlefs-Test:"
+          mklittlefs --version || mklittlefs --help || true
 
       # ---------------------------------------------------
       # LittleFS-Abbild bauen
@@ -154,34 +213,53 @@ jobs:
 
       - name: Build LittleFS image
         working-directory: littlefs-build
-        run: pio run --target buildfs
+        shell: bash
+        run: |
+          set -e
+
+          echo "mklittlefs vor dem Build:"
+          command -v mklittlefs
+
+          pio run --target buildfs
 
       # ---------------------------------------------------
-      # Ergebnis überprüfen und umbenennen
+      # Ergebnis suchen und umbenennen
       # ---------------------------------------------------
 
       - name: Prepare LittleFS artifact
         shell: bash
         run: |
-          SOURCE_FILE="littlefs-build/.pio/build/seeed_xiao_esp32c6/littlefs.bin"
+          set -e
+
+          SOURCE_FILE="$(
+            find littlefs-build/.pio/build \
+              -type f \
+              -name "littlefs.bin" \
+              -print \
+              -quit
+          )"
+
           TARGET_FILE="CAM-System-littlefs.bin"
 
-          if [ ! -f "$SOURCE_FILE" ]; then
+          if [ -z "$SOURCE_FILE" ]; then
             echo "FEHLER: LittleFS-Abbild wurde nicht gefunden."
-            echo "Gesuchte Datei: $SOURCE_FILE"
             echo
             echo "Vorhandene BIN-Dateien:"
-            find littlefs-build -type f -name "*.bin" -print
+            find littlefs-build -type f -name "*.bin" -print || true
             exit 1
           fi
 
+          echo "Gefundenes LittleFS-Abbild:"
+          echo "$SOURCE_FILE"
+
           cp "$SOURCE_FILE" "$TARGET_FILE"
 
-          echo "LittleFS-Abbild erfolgreich erstellt:"
+          echo
+          echo "Bereitgestelltes LittleFS-Abbild:"
           ls -lh "$TARGET_FILE"
 
       # ---------------------------------------------------
-      # LittleFS-BIN bereitstellen
+      # LittleFS-BIN als Artefakt hochladen
       # ---------------------------------------------------
 
       - name: Upload LittleFS artifact
