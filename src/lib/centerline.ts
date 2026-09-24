@@ -830,7 +830,12 @@ type Vert = { x: number; y: number; k: number };
 function cornerVerts(cs: Contour[], r: Raster): Vert[] {
   const out: Vert[] = [];
   for (const c of cs) {
-    const pts = c.pts;
+    const rawPts = c.pts;
+    const pts: Vec2[] = [];
+    for (let i = 0; i < rawPts.length; i++) {
+      const prev = pts[pts.length - 1];
+      if (!prev || Math.hypot(rawPts[i].x - prev.x, rawPts[i].y - prev.y) > 1e-4) pts.push(rawPts[i]);
+    }
     const n = pts.length;
     if (n < 3) continue;
     let sa = 0;
@@ -927,7 +932,7 @@ function fitLine(pts: P[], a: number, b: number): { px: number; py: number; dx: 
 }
 
 /** Verlängert ein Stück geradeaus bis kurz vor den Rand – gleiche Regeln wie beim Lauf. */
-function prolong(pts: P[], dist: Float32Array, gw: number, gh: number) {
+function prolong(pts: P[], dist: Float32Array, gw: number, gh: number, verts?: Vert[], dMid?: number) {
   const n = pts.length;
   if (n < 4) return;
   // Die Richtung wird über einen ganzen Schenkel gemessen, nicht nur über die
@@ -939,6 +944,7 @@ function prolong(pts: P[], dist: Float32Array, gw: number, gh: number) {
   const l = Math.hypot(dx, dy);
   if (l < 1e-6) return;
   dx /= l; dy /= l;
+
   const step = Math.min(1.5, Math.max(0.35, STEP_EXT * dEnd));
   const maxLen = Math.max(2, dEnd * 1.3 + 1.5);
   let px = b.x, py = b.y, len = 0;
@@ -947,6 +953,15 @@ function prolong(pts: P[], dist: Float32Array, gw: number, gh: number) {
     if (sampleD(dist, gw, gh, nx, ny) < 1) break;                    // Rand erreicht
     const off = offCenter(dist, gw, gh, { x: nx, y: ny }, dx, dy);
     if (off === null || off > OFF_CENTER) break;                      // nicht mehr auf der Mitte
+    if (verts && dMid) {
+      let nearCorner = false;
+      const limSq = (0.80 * dMid) * (0.80 * dMid);
+      for (const v of verts) {
+        const gx = v.x - nx, gy = v.y - ny;
+        if (gx * gx + gy * gy < limSq) { nearCorner = true; break; }
+      }
+      if (nearCorner) break;
+    }
     px = nx; py = ny; len += step;
     pts.push({ x: px, y: py });
   }
@@ -981,7 +996,7 @@ function pruneHooks(paths: P[][], verts: Vert[], dist: Float32Array, gw: number,
         const gx = v.x - p.x, gy = v.y - p.y;
         const distSq = gx * gx + gy * gy;
         if (distSq < (v.k * d) * (v.k * d)) return true;
-        if (distSq < (0.85 * dMid) * (0.85 * dMid)) return true;
+        if (distSq < (1.15 * dMid) * (1.15 * dMid)) return true;
       }
       return false;
     };
@@ -992,8 +1007,8 @@ function pruneHooks(paths: P[][], verts: Vert[], dist: Float32Array, gw: number,
     if (b - a < 2) continue;
 
     const s = pts.slice(a, b + 1);
-    if (a > 0) { s.reverse(); prolong(s, dist, gw, gh); s.reverse(); }
-    if (b < pts.length - 1) prolong(s, dist, gw, gh);
+    if (a > 0) { s.reverse(); prolong(s, dist, gw, gh, verts, dMid); s.reverse(); }
+    if (b < pts.length - 1) prolong(s, dist, gw, gh, verts, dMid);
 
     let len = 0;
     for (let i = 1; i < s.length; i++) len += Math.hypot(s[i].x - s[i - 1].x, s[i].y - s[i - 1].y);
@@ -1178,17 +1193,36 @@ function joinBranches(paths: P[][], dist: Float32Array, gw: number, gh: number, 
     let lenRight = 0;
     for (let idx = k + 1; idx < A.length; idx++) lenRight += Math.hypot(A[idx].x - A[idx - 1].x, A[idx].y - A[idx - 1].y);
 
-    let merged: P[];
+    let merged: P[] | null = null;
     if (lenRight <= lenLeft) {
-      const rightPart = A.slice(k);
-      const revRight = A.slice(k).reverse();
-      const leftPart = A.slice(0, k + 1).reverse();
-      merged = [...B, ...rightPart, ...revRight, ...leftPart];
+      const apex = A[A.length - 1];
+      const vkx = apex.x - A[k].x, vky = apex.y - A[k].y;
+      const lk = Math.hypot(vkx, vky) || 1;
+      const vBEndx = B[B.length - 1].x - B[Math.max(0, B.length - 3)].x;
+      const vBEndy = B[B.length - 1].y - B[Math.max(0, B.length - 3)].y;
+      const lB = Math.hypot(vBEndx, vBEndy) || 1;
+      const cosAngle = (vBEndx * vkx + vBEndy * vky) / (lB * lk);
+      // Nur wenn B und das Endstück in einem echten Winkel zueinander stehen (Scheitelpunkt / Ecke, z. B. Spitze der 1):
+      // Bei kollinearen Stücken (cosAngle > 0.7) handelt es sich um einen durchgehenden Querbalken (T-Stück / Fußserife),
+      // der nicht mit Rücklauf doppelt befahren werden darf.
+      if (cosAngle > -0.2 && cosAngle < 0.75) {
+        merged = [...B, apex, ...A.slice(0, A.length - 1).reverse()];
+      }
     } else {
-      const leftPart = A.slice(0, k + 1).reverse();
-      const revLeft = A.slice(0, k + 1);
-      const rightPart = A.slice(k);
-      merged = [...B, ...leftPart, ...revLeft, ...rightPart];
+      const apex = A[0];
+      const vkx = apex.x - A[k].x, vky = apex.y - A[k].y;
+      const lk = Math.hypot(vkx, vky) || 1;
+      const vBEndx = B[B.length - 1].x - B[Math.max(0, B.length - 3)].x;
+      const vBEndy = B[B.length - 1].y - B[Math.max(0, B.length - 3)].y;
+      const lB = Math.hypot(vBEndx, vBEndy) || 1;
+      const cosAngle = (vBEndx * vkx + vBEndy * vky) / (lB * lk);
+      if (cosAngle > -0.2 && cosAngle < 0.75) {
+        merged = [...B, apex, ...A.slice(1)];
+      }
+    }
+
+    if (!merged) {
+      break;
     }
 
     const next: P[][] = [];
